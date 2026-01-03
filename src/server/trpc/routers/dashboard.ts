@@ -1,14 +1,26 @@
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../trpc";
 
+const spendFilterInput = z
+  .object({
+    categoryIds: z.array(z.string().cuid()).optional(),
+    paymentMethodIds: z.array(z.string().cuid()).optional(),
+    tagIds: z.array(z.string().cuid()).optional(),
+    includeNoTags: z.boolean().optional(),
+  })
+  .optional();
+
 const yearInput = z.object({
   year: z.number().int().min(2000).max(2100),
+  filters: spendFilterInput,
 });
 
 const monthInput = z.object({
   year: z.number().int().min(2000).max(2100),
   month: z.number().int().min(1).max(12),
+  filters: spendFilterInput,
 });
 
 const buildYearRange = (year: number) => ({
@@ -20,6 +32,60 @@ const buildMonthRange = (year: number, month: number) => ({
   start: new Date(year, month - 1, 1, 0, 0, 0, 0),
   end: new Date(year, month, 0, 23, 59, 59, 999),
 });
+
+type SpendFilters = z.infer<typeof spendFilterInput>;
+
+const buildSpendWhere = (
+  filters: SpendFilters,
+  start: Date,
+  end: Date
+): Prisma.TransactionWhereInput => {
+  const where: Prisma.TransactionWhereInput = {
+    date: {
+      gte: start,
+      lte: end,
+    },
+  };
+  const andFilters: Prisma.TransactionWhereInput[] = [];
+
+  if (filters?.categoryIds?.length) {
+    where.categoryId = { in: filters.categoryIds };
+  }
+  if (filters?.paymentMethodIds?.length) {
+    where.paymentMethodId = { in: filters.paymentMethodIds };
+  }
+
+  if (filters?.tagIds?.length || filters?.includeNoTags) {
+    const tagFilters: Prisma.TransactionWhereInput[] = [];
+    if (filters?.tagIds?.length) {
+      tagFilters.push({
+        tags: {
+          some: {
+            tagId: { in: filters.tagIds },
+          },
+        },
+      });
+    }
+    if (filters?.includeNoTags) {
+      tagFilters.push({
+        tags: {
+          none: {},
+        },
+      });
+    }
+    if (tagFilters.length === 1) {
+      andFilters.push(tagFilters[0]);
+    } else if (tagFilters.length > 1) {
+      andFilters.push({ OR: tagFilters });
+    }
+  }
+
+  if (andFilters.length) {
+    where.AND = andFilters;
+  }
+
+  return where;
+};
 
 export const dashboardRouter = router({
   years: protectedProcedure.query(async ({ ctx }) => {
@@ -66,9 +132,10 @@ export const dashboardRouter = router({
     .input(yearInput)
     .query(async ({ ctx, input }) => {
       const { start, end } = buildYearRange(input.year);
+      const spendWhere = buildSpendWhere(input.filters, start, end);
       const [spendEntries, incomeEntries] = await Promise.all([
         ctx.db.transaction.findMany({
-          where: { date: { gte: start, lte: end } },
+          where: spendWhere,
           select: { date: true, netCents: true },
         }),
         ctx.db.incomeEvent.findMany({
@@ -114,8 +181,9 @@ export const dashboardRouter = router({
     .input(monthInput)
     .query(async ({ ctx, input }) => {
       const { start, end } = buildMonthRange(input.year, input.month);
+      const spendWhere = buildSpendWhere(input.filters, start, end);
       const entries = await ctx.db.transaction.findMany({
-        where: { date: { gte: start, lte: end } },
+        where: spendWhere,
         select: {
           netCents: true,
           categoryId: true,
@@ -145,12 +213,15 @@ export const dashboardRouter = router({
     }),
 
   monthCards: protectedProcedure
-    .input(monthInput.extend({ limit: z.number().int().min(1).max(12).optional() }))
+    .input(
+      monthInput.extend({ limit: z.number().int().min(1).max(12).optional() })
+    )
     .query(async ({ ctx, input }) => {
       const { start, end } = buildMonthRange(input.year, input.month);
+      const spendWhere = buildSpendWhere(input.filters, start, end);
       const entries = await ctx.db.transaction.findMany({
         where: {
-          date: { gte: start, lte: end },
+          ...spendWhere,
           paymentMethod: { type: "CARD" },
         },
         select: {

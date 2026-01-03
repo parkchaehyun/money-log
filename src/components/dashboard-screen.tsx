@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
 import { trpc } from "@/trpc/react";
+import { MultiSelectionSheet } from "@/components/multi-selection-sheet";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), {
   ssr: false,
@@ -23,9 +24,19 @@ const formatCurrency = (value: number) => `₩${formatter.format(Math.abs(value)
 const formatSigned = (value: number, sign: "+" | "-" | "=") =>
   `${sign}₩${formatter.format(Math.abs(value))}`;
 
+const formatAxisValue = (value: number) => {
+  const abs = Math.abs(value);
+  if (abs >= 10_000) {
+    const man = Math.round(abs / 10_000);
+    return `${value < 0 ? "-" : ""}${man}만`;
+  }
+  return `${value < 0 ? "-" : ""}${formatter.format(abs)}`;
+};
+
 const monthLabels = Array.from({ length: 12 }, (_, index) =>
   String(index + 1).padStart(2, "0")
 );
+const NO_TAG_ID = "no-tags";
 
 export function DashboardScreen() {
   const now = new Date();
@@ -33,6 +44,13 @@ export function DashboardScreen() {
   const currentMonth = now.getMonth() + 1;
   const [year, setYear] = useState(currentYear);
   const [month, setMonth] = useState(currentMonth);
+  const [categoryFilterIds, setCategoryFilterIds] = useState<string[]>([]);
+  const [paymentFilterIds, setPaymentFilterIds] = useState<string[]>([]);
+  const [tagFilterIds, setTagFilterIds] = useState<string[]>([]);
+  const [includeNoTags, setIncludeNoTags] = useState(false);
+  const [categorySheetOpen, setCategorySheetOpen] = useState(false);
+  const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
+  const [tagSheetOpen, setTagSheetOpen] = useState(false);
 
   const yearsQuery = trpc.dashboard.years.useQuery();
   const years = yearsQuery.data ?? [currentYear];
@@ -43,15 +61,50 @@ export function DashboardScreen() {
     }
   }, [year, years]);
 
-  const yearOverviewQuery = trpc.dashboard.yearOverview.useQuery({ year });
+  const spendFilters = useMemo(
+    () => ({
+      categoryIds: categoryFilterIds.length ? categoryFilterIds : undefined,
+      paymentMethodIds: paymentFilterIds.length ? paymentFilterIds : undefined,
+      tagIds: tagFilterIds.length ? tagFilterIds : undefined,
+      includeNoTags: includeNoTags || undefined,
+    }),
+    [categoryFilterIds, includeNoTags, paymentFilterIds, tagFilterIds]
+  );
+
+  const categoriesQuery = trpc.categories.list.useQuery();
+  const paymentMethodsQuery = trpc.paymentMethods.list.useQuery();
+  const tagsQuery = trpc.tags.list.useQuery();
+
+  const categories = useMemo(
+    () => (Array.isArray(categoriesQuery.data) ? categoriesQuery.data : []),
+    [categoriesQuery.data]
+  );
+  const paymentMethods = useMemo(
+    () =>
+      Array.isArray(paymentMethodsQuery.data)
+        ? paymentMethodsQuery.data
+        : [],
+    [paymentMethodsQuery.data]
+  );
+  const tags = useMemo(
+    () => (Array.isArray(tagsQuery.data) ? tagsQuery.data : []),
+    [tagsQuery.data]
+  );
+
+  const yearOverviewQuery = trpc.dashboard.yearOverview.useQuery({
+    year,
+    filters: spendFilters,
+  });
   const monthCategoryQuery = trpc.dashboard.monthCategory.useQuery({
     year,
     month,
+    filters: spendFilters,
   });
   const monthCardsQuery = trpc.dashboard.monthCards.useQuery({
     year,
     month,
     limit: 6,
+    filters: spendFilters,
   });
 
   const yearOverview = yearOverviewQuery.data;
@@ -95,6 +148,30 @@ export function DashboardScreen() {
   }, [availableMonths, currentMonth, month]);
 
   const monthLabel = `${year}.${monthLabels[month - 1]}`;
+  const totalTagOptions = tags.length + 1;
+  const selectedTagCount = tagFilterIds.length + (includeNoTags ? 1 : 0);
+  const categorySummary =
+    categoryFilterIds.length > 0
+      ? `${categoryFilterIds.length} selected`
+      : "All categories";
+  const paymentSummary =
+    paymentFilterIds.length > 0
+      ? `${paymentFilterIds.length} selected`
+      : "All payments";
+  const tagSummary =
+    selectedTagCount === 0 || selectedTagCount === totalTagOptions
+      ? "All entries"
+      : `${selectedTagCount} selected`;
+  const hasFilters =
+    categoryFilterIds.length > 0 ||
+    paymentFilterIds.length > 0 ||
+    (selectedTagCount > 0 && selectedTagCount !== totalTagOptions);
+  const resetFilters = () => {
+    setCategoryFilterIds([]);
+    setPaymentFilterIds([]);
+    setTagFilterIds([]);
+    setIncludeNoTags(false);
+  };
 
   const netTrendOption = useMemo(() => {
     const data = yearOverview?.months ?? [];
@@ -118,7 +195,7 @@ export function DashboardScreen() {
         splitLine: { lineStyle: { color: "#f4f4f5" } },
         axisLabel: {
           color: COLORS.muted,
-          formatter: (value: number) => `₩${formatter.format(value)}`,
+          formatter: (value: number) => formatAxisValue(value),
         },
       },
       series: [
@@ -162,7 +239,7 @@ export function DashboardScreen() {
         splitLine: { lineStyle: { color: "#f4f4f5" } },
         axisLabel: {
           color: COLORS.muted,
-          formatter: (value: number) => `₩${formatter.format(value)}`,
+          formatter: (value: number) => formatAxisValue(value),
         },
       },
       series: [
@@ -229,7 +306,7 @@ export function DashboardScreen() {
         splitLine: { lineStyle: { color: "#f4f4f5" } },
         axisLabel: {
           color: COLORS.muted,
-          formatter: (value: number) => `₩${formatter.format(value)}`,
+          formatter: (value: number) => formatAxisValue(value),
         },
       },
       yAxis: {
@@ -337,6 +414,54 @@ export function DashboardScreen() {
           </div>
         </div>
 
+        <div className="rounded-2xl border border-zinc-100 bg-zinc-50/60 p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+              Spend filters
+            </p>
+            <button
+              type="button"
+              onClick={resetFilters}
+              disabled={!hasFilters}
+              className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-400 transition hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-300"
+            >
+              Reset
+            </button>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <button
+              type="button"
+              onClick={() => setCategorySheetOpen(true)}
+              className="flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 transition hover:border-zinc-300"
+            >
+              <span className="font-medium">Categories</span>
+              <span className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                {categorySummary}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPaymentSheetOpen(true)}
+              className="flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 transition hover:border-zinc-300"
+            >
+              <span className="font-medium">Payments</span>
+              <span className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                {paymentSummary}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTagSheetOpen(true)}
+              className="flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 transition hover:border-zinc-300"
+            >
+              <span className="font-medium">Tags</span>
+              <span className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                {tagSummary}
+              </span>
+            </button>
+          </div>
+        </div>
+
         <div className="grid gap-6">
           <div className="rounded-3xl border border-zinc-100 bg-white px-4 py-4">
             <div className="flex items-center justify-between">
@@ -413,6 +538,69 @@ export function DashboardScreen() {
           </div>
         </div>
       </div>
+
+      <MultiSelectionSheet
+        open={categorySheetOpen}
+        title="Categories"
+        items={categories.map((category) => ({
+          id: category.id,
+          label: category.name,
+        }))}
+        selectedIds={categoryFilterIds}
+        onClose={() => setCategorySheetOpen(false)}
+        onToggle={(id) =>
+          setCategoryFilterIds((prev) =>
+            prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+          )
+        }
+        onClear={() => setCategoryFilterIds([])}
+        clearLabel="Clear categories"
+      />
+
+      <MultiSelectionSheet
+        open={paymentSheetOpen}
+        title="Payments"
+        items={paymentMethods.map((method) => ({
+          id: method.id,
+          label: method.name,
+        }))}
+        selectedIds={paymentFilterIds}
+        onClose={() => setPaymentSheetOpen(false)}
+        onToggle={(id) =>
+          setPaymentFilterIds((prev) =>
+            prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+          )
+        }
+        onClear={() => setPaymentFilterIds([])}
+        clearLabel="Clear payments"
+      />
+
+      <MultiSelectionSheet
+        open={tagSheetOpen}
+        title="Tags"
+        items={[
+          { id: NO_TAG_ID, label: "No tags" },
+          ...tags.map((tag) => ({ id: tag.id, label: tag.name })),
+        ]}
+        selectedIds={
+          includeNoTags ? [NO_TAG_ID, ...tagFilterIds] : tagFilterIds
+        }
+        onClose={() => setTagSheetOpen(false)}
+        onToggle={(id) => {
+          if (id === NO_TAG_ID) {
+            setIncludeNoTags((prev) => !prev);
+            return;
+          }
+          setTagFilterIds((prev) =>
+            prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+          );
+        }}
+        onClear={() => {
+          setTagFilterIds([]);
+          setIncludeNoTags(false);
+        }}
+        clearLabel="Clear tags"
+      />
     </section>
   );
 }
