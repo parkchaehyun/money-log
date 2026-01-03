@@ -2,21 +2,21 @@ import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 
 import { AppHeader } from "@/components/app-header";
-import { QuickAddScreen } from "@/components/quick-add-screen";
+import { ReviewScreen } from "@/components/review-screen";
 import { authOptions } from "@/server/auth";
 
-export default async function Home() {
+export default async function ReviewPage() {
   const session = await getServerSession(authOptions);
 
   if (!session?.user) {
-    redirect("/login?callbackUrl=/");
+    redirect("/login?callbackUrl=/review");
   }
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#f3f0ea,_#f7f5f2_45%,_#fefcf9_100%)] px-6 py-10 text-zinc-900">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-8">
         <AppHeader />
-        <QuickAddScreen />
+        <ReviewScreen />
       </div>
     </main>
   );
