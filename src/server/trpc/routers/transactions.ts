@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
-import { publicProcedure, router } from "../trpc";
+import { protectedProcedure, router } from "../trpc";
 
 const createInput = z
   .object({
@@ -41,7 +41,7 @@ const listInput = z
   .optional();
 
 export const transactionsRouter = router({
-  list: publicProcedure.input(listInput).query(async ({ ctx, input }) => {
+  list: protectedProcedure.input(listInput).query(async ({ ctx, input }) => {
     const where: Prisma.TransactionWhereInput = {};
     if (input?.from || input?.to) {
       where.date = {};
@@ -69,7 +69,9 @@ export const transactionsRouter = router({
       },
     });
   }),
-  create: publicProcedure.input(createInput).mutation(async ({ ctx, input }) => {
+  create: protectedProcedure
+    .input(createInput)
+    .mutation(async ({ ctx, input }) => {
     const netCents = input.grossCents - input.discountCents;
 
     return ctx.db.transaction.create({
@@ -89,7 +91,9 @@ export const transactionsRouter = router({
       },
     });
   }),
-  update: publicProcedure.input(updateInput).mutation(async ({ ctx, input }) => {
+  update: protectedProcedure
+    .input(updateInput)
+    .mutation(async ({ ctx, input }) => {
     const existing = await ctx.db.transaction.findUnique({
       where: { id: input.id },
     });
@@ -143,7 +147,7 @@ export const transactionsRouter = router({
       },
     });
   }),
-  delete: publicProcedure
+  delete: protectedProcedure
     .input(z.object({ id: z.string().cuid() }))
     .mutation(({ ctx, input }) =>
       ctx.db.transaction.delete({ where: { id: input.id } })

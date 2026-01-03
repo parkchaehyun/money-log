@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
-import { publicProcedure, router } from "../trpc";
+import { protectedProcedure, router } from "../trpc";
 
 const createInput = z.object({
   date: z.date(),
@@ -30,7 +30,7 @@ const listInput = z
   .optional();
 
 export const incomeRouter = router({
-  list: publicProcedure.input(listInput).query(({ ctx, input }) => {
+  list: protectedProcedure.input(listInput).query(({ ctx, input }) => {
     const where: Prisma.IncomeEventWhereInput = {};
     if (input?.from || input?.to) {
       where.date = {};
@@ -52,7 +52,7 @@ export const incomeRouter = router({
       include: { card: true },
     });
   }),
-  create: publicProcedure.input(createInput).mutation(({ ctx, input }) =>
+  create: protectedProcedure.input(createInput).mutation(({ ctx, input }) =>
     ctx.db.incomeEvent.create({
       data: {
         date: input.date,
@@ -64,7 +64,7 @@ export const incomeRouter = router({
       include: { card: true },
     })
   ),
-  update: publicProcedure.input(updateInput).mutation(({ ctx, input }) => {
+  update: protectedProcedure.input(updateInput).mutation(({ ctx, input }) => {
     const data: Prisma.IncomeEventUncheckedUpdateInput = {};
     if (input.date) {
       data.date = input.date;
@@ -88,7 +88,7 @@ export const incomeRouter = router({
       include: { card: true },
     });
   }),
-  delete: publicProcedure
+  delete: protectedProcedure
     .input(z.object({ id: z.string().cuid() }))
     .mutation(({ ctx, input }) =>
       ctx.db.incomeEvent.delete({ where: { id: input.id } })

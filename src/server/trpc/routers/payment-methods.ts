@@ -1,7 +1,7 @@
 import { PaymentMethodType, Prisma } from "@prisma/client";
 import { z } from "zod";
 
-import { publicProcedure, router } from "../trpc";
+import { protectedProcedure, router } from "../trpc";
 
 const createInput = z.object({
   name: z.string().trim().min(1),
@@ -17,13 +17,13 @@ const updateInput = z.object({
 });
 
 export const paymentMethodsRouter = router({
-  list: publicProcedure.query(({ ctx }) =>
+  list: protectedProcedure.query(({ ctx }) =>
     ctx.db.paymentMethod.findMany({
       orderBy: { name: "asc" },
       include: { card: true },
     })
   ),
-  create: publicProcedure.input(createInput).mutation(({ ctx, input }) =>
+  create: protectedProcedure.input(createInput).mutation(({ ctx, input }) =>
     ctx.db.paymentMethod.create({
       data: {
         name: input.name,
@@ -33,7 +33,7 @@ export const paymentMethodsRouter = router({
       include: { card: true },
     })
   ),
-  update: publicProcedure.input(updateInput).mutation(({ ctx, input }) => {
+  update: protectedProcedure.input(updateInput).mutation(({ ctx, input }) => {
     const data: Prisma.PaymentMethodUncheckedUpdateInput = {};
     if (input.name !== undefined) {
       data.name = input.name;
@@ -51,7 +51,7 @@ export const paymentMethodsRouter = router({
       include: { card: true },
     });
   }),
-  delete: publicProcedure
+  delete: protectedProcedure
     .input(z.object({ id: z.string().cuid() }))
     .mutation(({ ctx, input }) =>
       ctx.db.paymentMethod.delete({ where: { id: input.id } })

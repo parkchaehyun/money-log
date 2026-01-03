@@ -14,5 +14,5 @@ export async function createContext(_opts: {
   resHeaders: Headers;
 }): Promise<TRPCContext> {
   const session = await getServerSession(authOptions);
-  return { db, session };
+  return { db, session: session ?? null };
 }

@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
-import { publicProcedure, router } from "../trpc";
+import { protectedProcedure, router } from "../trpc";
 
 const createInput = z.object({
   name: z.string().trim().min(1),
@@ -19,13 +19,13 @@ const updateInput = z.object({
 });
 
 export const cardsRouter = router({
-  list: publicProcedure.query(({ ctx }) =>
+  list: protectedProcedure.query(({ ctx }) =>
     ctx.db.card.findMany({
       orderBy: { name: "asc" },
       include: { paymentMethods: true },
     })
   ),
-  create: publicProcedure.input(createInput).mutation(({ ctx, input }) =>
+  create: protectedProcedure.input(createInput).mutation(({ ctx, input }) =>
     ctx.db.card.create({
       data: {
         name: input.name,
@@ -36,7 +36,7 @@ export const cardsRouter = router({
       include: { paymentMethods: true },
     })
   ),
-  update: publicProcedure.input(updateInput).mutation(({ ctx, input }) => {
+  update: protectedProcedure.input(updateInput).mutation(({ ctx, input }) => {
     const data: Prisma.CardUpdateInput = {};
     if (input.name !== undefined) {
       data.name = input.name;
@@ -57,7 +57,7 @@ export const cardsRouter = router({
       include: { paymentMethods: true },
     });
   }),
-  delete: publicProcedure
+  delete: protectedProcedure
     .input(z.object({ id: z.string().cuid() }))
     .mutation(({ ctx, input }) => ctx.db.card.delete({ where: { id: input.id } })),
 });
