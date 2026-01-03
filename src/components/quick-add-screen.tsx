@@ -14,8 +14,6 @@ const CASH_METHOD_NAME = "Cash";
 const recentCategoryKey = "money-log:recentCategories";
 const recentPaymentKey = "money-log:recentPaymentMethods";
 const recentTagKey = "money-log:recentTags";
-const lastCategoryKey = "money-log:lastCategoryId";
-const lastPaymentKey = "money-log:lastPaymentMethodId";
 
 const formatLocalDate = (value: Date) => {
   const year = value.getFullYear();
@@ -75,28 +73,6 @@ const writeStoredList = (key: string, value: string[]) => {
   }
 };
 
-const readStoredValue = (key: string) => {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-};
-
-const writeStoredValue = (key: string, value: string) => {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // Ignore storage failures.
-  }
-};
-
 export function QuickAddScreen() {
   const utils = trpc.useUtils();
   const [date, setDate] = useState(() => formatLocalDate(new Date()));
@@ -113,9 +89,6 @@ export function QuickAddScreen() {
   const [recentCategoryIds, setRecentCategoryIds] = useState<string[]>([]);
   const [recentPaymentIds, setRecentPaymentIds] = useState<string[]>([]);
   const [recentTagIds, setRecentTagIds] = useState<string[]>([]);
-  const [storedLastCategoryId, setStoredLastCategoryId] = useState<
-    string | null
-  >(null);
   const [status, setStatus] = useState<string | null>(null);
   const [statusTone, setStatusTone] = useState<"info" | "error">("info");
   const [toast, setToast] = useState<{ id: number; message: string } | null>(
@@ -176,7 +149,6 @@ export function QuickAddScreen() {
         ].slice(0, 3);
         setRecentCategoryIds(nextRecentCategories);
         writeStoredList(recentCategoryKey, nextRecentCategories);
-        writeStoredValue(lastCategoryKey, categoryId);
       }
       if (paymentMethodId) {
         const nextRecentPayments = [
@@ -185,7 +157,6 @@ export function QuickAddScreen() {
         ].slice(0, 3);
         setRecentPaymentIds(nextRecentPayments);
         writeStoredList(recentPaymentKey, nextRecentPayments);
-        writeStoredValue(lastPaymentKey, paymentMethodId);
       }
       if (selectedTagIds.length) {
         const nextRecentTags = [
@@ -289,17 +260,7 @@ export function QuickAddScreen() {
     setRecentCategoryIds(readStoredList(recentCategoryKey));
     setRecentPaymentIds(readStoredList(recentPaymentKey));
     setRecentTagIds(readStoredList(recentTagKey));
-    setStoredLastCategoryId(readStoredValue(lastCategoryKey));
   }, []);
-
-  useEffect(() => {
-    if (!categoryId && storedLastCategoryId) {
-      const exists = categories.some((item) => item.id === storedLastCategoryId);
-      if (exists) {
-        setCategoryId(storedLastCategoryId);
-      }
-    }
-  }, [categoryId, categories, storedLastCategoryId]);
 
   useEffect(() => {
     if (paymentMethodsLoading || hasEnsuredCash || ensureCashMethod.isPending) {
@@ -362,16 +323,36 @@ export function QuickAddScreen() {
   const categoryChoices = useMemo(() => {
     const exclude = new Set(recentCategories.map((item) => item.id));
     const next = categories.filter((item) => !exclude.has(item.id));
-    return [...recentCategories, ...next].slice(0, 6);
-  }, [categories, recentCategories]);
+    let choices = [...recentCategories, ...next].slice(0, 6);
+    if (categoryId) {
+      const selected = categories.find((item) => item.id === categoryId);
+      if (selected && !choices.some((item) => item.id === selected.id)) {
+        choices = [selected, ...choices.slice(0, 5)];
+      }
+    }
+    return choices;
+  }, [categories, categoryId, recentCategories]);
 
   const paymentChoices = useMemo(() => {
     const recent = recentPayments.filter((item) => item.id !== cashMethod?.id);
     const exclude = new Set(recent.map((item) => item.id));
     const next = cardPaymentMethods.filter((item) => !exclude.has(item.id));
     const cardChoices = [...recent, ...next].slice(0, cashMethod ? 3 : 4);
-    return cashMethod ? [...cardChoices, cashMethod] : cardChoices;
-  }, [cardPaymentMethods, cashMethod, recentPayments]);
+    let choices = cashMethod ? [...cardChoices, cashMethod] : cardChoices;
+    if (paymentMethodId) {
+      const selected = paymentMethods.find((item) => item.id === paymentMethodId);
+      if (selected && !choices.some((item) => item.id === selected.id)) {
+        choices = [selected, ...choices.slice(0, choices.length - 1)];
+      }
+    }
+    return choices;
+  }, [
+    cardPaymentMethods,
+    cashMethod,
+    paymentMethodId,
+    paymentMethods,
+    recentPayments,
+  ]);
 
   const categoryItems = categories.map((item) => ({
     id: item.id,
@@ -630,7 +611,9 @@ export function QuickAddScreen() {
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => setCategoryId(item.id)}
+                  onClick={() =>
+                    setCategoryId((prev) => (prev === item.id ? null : item.id))
+                  }
                   className={`rounded-full px-4 py-2 text-sm font-medium transition ${
                     categoryId === item.id
                       ? "bg-zinc-900 text-white"
@@ -668,7 +651,11 @@ export function QuickAddScreen() {
                 <button
                   key={item.id}
                   type="button"
-                  onClick={() => setPaymentMethodId(item.id)}
+                  onClick={() =>
+                    setPaymentMethodId((prev) =>
+                      prev === item.id ? null : item.id
+                    )
+                  }
                   className={`rounded-full px-4 py-2 text-sm font-medium transition ${
                     paymentMethodId === item.id
                       ? "bg-zinc-900 text-white"
