@@ -11,6 +11,9 @@ export const authOptions: NextAuthOptions = {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60,
   },
+  pages: {
+    signIn: "/login",
+  },
   callbacks: {
     session({ session, token }) {
       if (session.user && token.sub) {
@@ -18,7 +21,18 @@ export const authOptions: NextAuthOptions = {
       }
       return session;
     },
-    redirect({ baseUrl }) {
+    redirect({ url, baseUrl }) {
+      if (url.startsWith("/")) {
+        return `${baseUrl}${url}`;
+      }
+      try {
+        const target = new URL(url);
+        if (target.origin === baseUrl) {
+          return url;
+        }
+      } catch {
+        return baseUrl;
+      }
       return baseUrl;
     },
   },
