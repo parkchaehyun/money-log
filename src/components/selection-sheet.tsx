@@ -15,9 +15,11 @@ type SelectionSheetProps = {
   selectedId: string | null;
   onClose: () => void;
   onSelect: (id: string) => void;
-  onCreate: (name: string) => Promise<void>;
-  createLabel: string;
+  onCreate?: (name: string) => Promise<void>;
+  createLabel?: string;
   createPlaceholder?: string;
+  clearLabel?: string;
+  onClear?: () => void;
 };
 
 export function SelectionSheet({
@@ -30,6 +32,8 @@ export function SelectionSheet({
   onCreate,
   createLabel,
   createPlaceholder,
+  clearLabel,
+  onClear,
 }: SelectionSheetProps) {
   const [query, setQuery] = useState("");
   const [newName, setNewName] = useState("");
@@ -90,39 +94,54 @@ export function SelectionSheet({
           onChange={(event) => setQuery(event.target.value)}
         />
 
-        <form
-          className="mt-4 rounded-2xl border border-dashed border-zinc-200 p-3"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            const trimmed = newName.trim();
-            if (!trimmed) {
-              return;
-            }
-            setIsCreating(true);
-            await onCreate(trimmed);
-            setIsCreating(false);
-            setNewName("");
-          }}
-        >
-          <label className="text-xs uppercase tracking-[0.3em] text-zinc-400">
-            {createLabel}
-          </label>
-          <div className="mt-2 flex gap-2">
-            <input
-              className="flex-1 rounded-xl border border-zinc-200 px-3 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
-              value={newName}
-              onChange={(event) => setNewName(event.target.value)}
-              placeholder={createPlaceholder ?? `New ${title.toLowerCase()}`}
-            />
-            <button
-              type="submit"
-              disabled={isCreating}
-              className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition disabled:bg-zinc-400"
-            >
-              Add
-            </button>
-          </div>
-        </form>
+        {onCreate && createLabel ? (
+          <form
+            className="mt-4 rounded-2xl border border-dashed border-zinc-200 p-3"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const trimmed = newName.trim();
+              if (!trimmed) {
+                return;
+              }
+              setIsCreating(true);
+              await onCreate(trimmed);
+              setIsCreating(false);
+              setNewName("");
+            }}
+          >
+            <label className="text-xs uppercase tracking-[0.3em] text-zinc-400">
+              {createLabel}
+            </label>
+            <div className="mt-2 flex gap-2">
+              <input
+                className="flex-1 rounded-xl border border-zinc-200 px-3 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+                value={newName}
+                onChange={(event) => setNewName(event.target.value)}
+                placeholder={createPlaceholder ?? `New ${title.toLowerCase()}`}
+              />
+              <button
+                type="submit"
+                disabled={isCreating}
+                className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition disabled:bg-zinc-400"
+              >
+                Add
+              </button>
+            </div>
+          </form>
+        ) : null}
+
+        {onClear ? (
+          <button
+            type="button"
+            onClick={() => {
+              onClear();
+              onClose();
+            }}
+            className="mt-4 w-full rounded-2xl border border-dashed border-zinc-200 px-4 py-3 text-left text-sm font-medium text-zinc-600 transition hover:text-zinc-900"
+          >
+            {clearLabel ?? "Clear selection"}
+          </button>
+        ) : null}
 
         <div className="mt-4 max-h-72 overflow-y-auto rounded-2xl border border-zinc-100 bg-zinc-50/60 p-2">
           {filteredItems.length === 0 ? (
