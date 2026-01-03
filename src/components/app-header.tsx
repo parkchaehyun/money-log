@@ -10,6 +10,7 @@ const navItems = [
   { href: "/", label: "Spend" },
   { href: "/income", label: "Income" },
   { href: "/review", label: "Review" },
+  { href: "/dashboard", label: "Dashboard" },
 ];
 
 export function AppHeader() {
@@ -71,14 +72,14 @@ export function AppHeader() {
         </div>
       </div>
 
-      <nav className="flex items-center gap-2 rounded-full bg-zinc-100 p-1 text-sm">
+      <nav className="grid w-full grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,1.35fr)] gap-1 rounded-2xl bg-zinc-100 p-1 text-xs sm:flex sm:w-auto sm:gap-2 sm:rounded-full sm:text-sm">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+              className={`rounded-full px-3 py-2 text-center text-xs font-medium transition sm:px-4 sm:py-2 sm:text-sm ${
                 isActive
                   ? "bg-white text-zinc-900 shadow-sm"
                   : "text-zinc-500 hover:text-zinc-900"
