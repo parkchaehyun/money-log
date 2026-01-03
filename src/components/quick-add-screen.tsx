@@ -6,9 +6,11 @@ import { createPortal } from "react-dom";
 import { trpc } from "@/trpc/react";
 
 import { MultiSelectionSheet } from "./multi-selection-sheet";
+import { PaymentSelectionSheet } from "./payment-selection-sheet";
 import { SelectionSheet } from "./selection-sheet";
 
 const formatter = new Intl.NumberFormat("ko-KR");
+const CASH_METHOD_NAME = "Cash";
 const recentCategoryKey = "money-log:recentCategories";
 const recentPaymentKey = "money-log:recentPaymentMethods";
 const recentTagKey = "money-log:recentTags";
@@ -123,6 +125,7 @@ export function QuickAddScreen() {
     null
   );
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+  const [hasEnsuredCash, setHasEnsuredCash] = useState(false);
 
   const [categorySheetOpen, setCategorySheetOpen] = useState(false);
   const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
@@ -239,10 +242,22 @@ export function QuickAddScreen() {
     },
   });
 
+  const createCard = trpc.cards.create.useMutation({
+    onSuccess: async () => {
+      await utils.cards.list.invalidate();
+    },
+  });
+
   const createPaymentMethod = trpc.paymentMethods.create.useMutation({
     onSuccess: async (data) => {
       await utils.paymentMethods.list.invalidate();
       setPaymentMethodId(data.id);
+    },
+  });
+
+  const ensureCashMethod = trpc.paymentMethods.create.useMutation({
+    onSuccess: async () => {
+      await utils.paymentMethods.list.invalidate();
     },
   });
 
@@ -264,6 +279,14 @@ export function QuickAddScreen() {
     [paymentMethodsData]
   );
   const tags = useMemo(() => (Array.isArray(tagsData) ? tagsData : []), [tagsData]);
+  const cashMethod = useMemo(
+    () => paymentMethods.find((item) => item.type === "CASH_TRANSFER"),
+    [paymentMethods]
+  );
+  const cardPaymentMethods = useMemo(
+    () => paymentMethods.filter((item) => item.type !== "CASH_TRANSFER"),
+    [paymentMethods]
+  );
 
   useEffect(() => {
     setRecentCategoryIds(readStoredList(recentCategoryKey));
@@ -292,6 +315,30 @@ export function QuickAddScreen() {
       }
     }
   }, [paymentMethodId, paymentMethods, storedLastPaymentId]);
+
+  useEffect(() => {
+    if (!paymentMethodId && !storedLastPaymentId && cashMethod) {
+      setPaymentMethodId(cashMethod.id);
+    }
+  }, [cashMethod, paymentMethodId, storedLastPaymentId]);
+
+  useEffect(() => {
+    if (paymentMethodsLoading || hasEnsuredCash || ensureCashMethod.isPending) {
+      return;
+    }
+    if (!cashMethod) {
+      setHasEnsuredCash(true);
+      ensureCashMethod.mutate({
+        name: CASH_METHOD_NAME,
+        type: "CASH_TRANSFER",
+      });
+    }
+  }, [
+    cashMethod,
+    ensureCashMethod,
+    hasEnsuredCash,
+    paymentMethodsLoading,
+  ]);
 
   const recentCategories = useMemo(
     () =>
@@ -340,21 +387,39 @@ export function QuickAddScreen() {
   }, [categories, recentCategories]);
 
   const paymentChoices = useMemo(() => {
-    const exclude = new Set(recentPayments.map((item) => item.id));
-    const next = paymentMethods.filter((item) => !exclude.has(item.id));
-    return [...recentPayments, ...next].slice(0, 4);
-  }, [paymentMethods, recentPayments]);
+    const base = cashMethod ? [cashMethod] : [];
+    const recent = recentPayments.filter((item) => item.id !== cashMethod?.id);
+    const exclude = new Set([...base, ...recent].map((item) => item.id));
+    const next = cardPaymentMethods.filter((item) => !exclude.has(item.id));
+    return [...base, ...recent, ...next].slice(0, 4);
+  }, [cardPaymentMethods, cashMethod, recentPayments]);
 
   const categoryItems = categories.map((item) => ({
     id: item.id,
     label: item.name,
   }));
 
-  const paymentItems = paymentMethods.map((item) => ({
-    id: item.id,
-    label: item.name,
-    subLabel: item.card?.name ?? null,
-  }));
+  const paymentItems = [
+    ...(cashMethod
+      ? [
+          {
+            id: cashMethod.id,
+            label: cashMethod.name,
+            subLabel: null,
+            type: cashMethod.type,
+          },
+        ]
+      : []),
+    ...cardPaymentMethods.map((item) => ({
+      id: item.id,
+      label: item.name,
+      subLabel:
+        item.card?.name && item.card.name !== item.name
+          ? item.card.name
+          : null,
+      type: item.type,
+    })),
+  ];
 
   const tagItems = tags.map((item) => ({
     id: item.id,
@@ -569,10 +634,11 @@ export function QuickAddScreen() {
             </p>
             <button
               type="button"
-              className="text-xs font-medium text-zinc-500 hover:text-zinc-900"
+              aria-label="Open category picker"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
               onClick={() => setCategorySheetOpen(true)}
             >
-              More
+              +
             </button>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -596,13 +662,6 @@ export function QuickAddScreen() {
                 </button>
               ))
             )}
-            <button
-              type="button"
-              onClick={() => setCategorySheetOpen(true)}
-              className="rounded-full border border-dashed border-zinc-300 px-3 py-2 text-sm text-zinc-500 hover:text-zinc-900"
-            >
-              + Add
-            </button>
           </div>
         </div>
 
@@ -613,10 +672,11 @@ export function QuickAddScreen() {
             </p>
             <button
               type="button"
-              className="text-xs font-medium text-zinc-500 hover:text-zinc-900"
+              aria-label="Open payment picker"
+              className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
               onClick={() => setPaymentSheetOpen(true)}
             >
-              More
+              +
             </button>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -640,73 +700,72 @@ export function QuickAddScreen() {
                 </button>
               ))
             )}
-            <button
-              type="button"
-              onClick={() => setPaymentSheetOpen(true)}
-              className="rounded-full border border-dashed border-zinc-300 px-3 py-2 text-sm text-zinc-500 hover:text-zinc-900"
-            >
-              + Add
-            </button>
           </div>
         </div>
       </div>
 
       <div className="mt-6">
-        <div className="flex items-center justify-between">
-          <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-            Tags
-          </p>
+        {selectedTagIds.length > 0 ? (
+          <>
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                Tags
+              </p>
+              <button
+                type="button"
+                aria-label="Open tag picker"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+                onClick={() => setTagSheetOpen(true)}
+              >
+                +
+              </button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {tagsLoading ? (
+                <span className="text-sm text-zinc-400">Loading...</span>
+              ) : tagsError ? (
+                <span className="text-sm text-red-500">Failed to load.</span>
+              ) : (
+                <>
+                  {selectedTags.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() =>
+                        setSelectedTagIds((prev) =>
+                          prev.filter((id) => id !== item.id)
+                        )
+                      }
+                      className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800"
+                    >
+                      {item.name} ×
+                    </button>
+                  ))}
+                  {recentTagChoices.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() =>
+                        setSelectedTagIds((prev) => [...prev, item.id])
+                      }
+                      className="rounded-full bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:text-zinc-900"
+                    >
+                      {item.name}
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+          </>
+        ) : (
           <button
             type="button"
             className="text-xs font-medium text-zinc-500 hover:text-zinc-900"
             onClick={() => setTagSheetOpen(true)}
           >
-            More
+            + Add tags
           </button>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {tagsLoading ? (
-            <span className="text-sm text-zinc-400">Loading...</span>
-          ) : tagsError ? (
-            <span className="text-sm text-red-500">Failed to load.</span>
-          ) : (
-            <>
-              {selectedTags.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() =>
-                    setSelectedTagIds((prev) =>
-                      prev.filter((id) => id !== item.id)
-                    )
-                  }
-                  className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800"
-                >
-                  {item.name} ×
-                </button>
-              ))}
-              {recentTagChoices.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() =>
-                    setSelectedTagIds((prev) => [...prev, item.id])
-                  }
-                  className="rounded-full bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:text-zinc-900"
-                >
-                  {item.name}
-                </button>
-              ))}
-            </>
-          )}
-          <button
-            type="button"
-            onClick={() => setTagSheetOpen(true)}
-            className="rounded-full border border-dashed border-zinc-300 px-3 py-2 text-sm text-zinc-500 hover:text-zinc-900"
-          >
-            + Tags
-          </button>
-        </div>
+        )}
       </div>
 
       <div className="mt-6">
@@ -757,17 +816,20 @@ export function QuickAddScreen() {
         createLabel="Add new category"
       />
 
-      <SelectionSheet
+      <PaymentSelectionSheet
         open={paymentSheetOpen}
-        title="Payment Method"
         items={paymentItems}
         selectedId={paymentMethodId}
         onClose={() => setPaymentSheetOpen(false)}
         onSelect={setPaymentMethodId}
         onCreate={async (name) => {
-          await createPaymentMethod.mutateAsync({ name });
+          const card = await createCard.mutateAsync({ name });
+          await createPaymentMethod.mutateAsync({
+            name: card.name,
+            type: "CARD",
+            cardId: card.id,
+          });
         }}
-        createLabel="Add new payment method"
       />
 
       <MultiSelectionSheet
