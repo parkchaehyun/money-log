@@ -3,10 +3,12 @@
 import { trpc } from "@/trpc/react";
 
 const formatter = new Intl.NumberFormat("ko-KR");
-const dateFormatter = new Intl.DateTimeFormat("ko-KR", {
-  month: "short",
-  day: "numeric",
-});
+const formatShortDate = (value: Date) => {
+  const year = String(value.getFullYear()).slice(-2);
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}.${month}.${day}`;
+};
 
 export function ReviewScreen() {
   const { data, isLoading, error } = trpc.transactions.list.useQuery({
@@ -65,7 +67,7 @@ export function ReviewScreen() {
                 {item.merchant || "Untitled purchase"}
               </p>
               <p className="text-xs text-zinc-500">
-                {dateFormatter.format(item.date)} ·{" "}
+                {formatShortDate(item.date)} ·{" "}
                 {item.category?.name ?? "Uncategorized"} ·{" "}
                 {item.paymentMethod?.name ?? "Unknown payment"}
               </p>
@@ -78,9 +80,7 @@ export function ReviewScreen() {
                 <p className="text-xs text-zinc-500">
                   Saved ₩{formatter.format(item.discountCents)}
                 </p>
-              ) : (
-                <p className="text-xs text-zinc-400">No discount</p>
-              )}
+              ) : null}
             </div>
           </div>
         ))}

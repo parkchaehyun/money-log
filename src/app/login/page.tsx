@@ -57,7 +57,7 @@ export default function LoginPage() {
             Email
           </label>
           <input
-            className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none transition focus:border-zinc-900"
+            className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
             type="email"
             autoComplete="email"
             value={email}
@@ -69,7 +69,7 @@ export default function LoginPage() {
             Password
           </label>
           <input
-            className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none transition focus:border-zinc-900"
+            className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
             type="password"
             autoComplete="current-password"
             value={password}

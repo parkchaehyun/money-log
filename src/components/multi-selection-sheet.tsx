@@ -8,27 +8,27 @@ type SelectionItem = {
   subLabel?: string | null;
 };
 
-type SelectionSheetProps = {
+type MultiSelectionSheetProps = {
   open: boolean;
   title: string;
   items: SelectionItem[];
-  selectedId: string | null;
+  selectedIds: string[];
   onClose: () => void;
-  onSelect: (id: string) => void;
+  onToggle: (id: string) => void;
   onCreate: (name: string) => Promise<void>;
   createLabel: string;
 };
 
-export function SelectionSheet({
+export function MultiSelectionSheet({
   open,
   title,
   items,
-  selectedId,
+  selectedIds,
   onClose,
-  onSelect,
+  onToggle,
   onCreate,
   createLabel,
-}: SelectionSheetProps) {
+}: MultiSelectionSheetProps) {
   const [query, setQuery] = useState("");
   const [newName, setNewName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
@@ -128,15 +128,12 @@ export function SelectionSheet({
           ) : (
             <ul className="space-y-2">
               {filteredItems.map((item) => {
-                const isActive = item.id === selectedId;
+                const isActive = selectedIds.includes(item.id);
                 return (
                   <li key={item.id}>
                     <button
                       type="button"
-                      onClick={() => {
-                        onSelect(item.id);
-                        onClose();
-                      }}
+                      onClick={() => onToggle(item.id)}
                       className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm transition ${
                         isActive
                           ? "bg-zinc-900 text-white"
