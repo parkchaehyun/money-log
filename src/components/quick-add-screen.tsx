@@ -116,9 +116,6 @@ export function QuickAddScreen() {
   const [storedLastCategoryId, setStoredLastCategoryId] = useState<
     string | null
   >(null);
-  const [storedLastPaymentId, setStoredLastPaymentId] = useState<string | null>(
-    null
-  );
   const [status, setStatus] = useState<string | null>(null);
   const [statusTone, setStatusTone] = useState<"info" | "error">("info");
   const [toast, setToast] = useState<{ id: number; message: string } | null>(
@@ -293,7 +290,6 @@ export function QuickAddScreen() {
     setRecentPaymentIds(readStoredList(recentPaymentKey));
     setRecentTagIds(readStoredList(recentTagKey));
     setStoredLastCategoryId(readStoredValue(lastCategoryKey));
-    setStoredLastPaymentId(readStoredValue(lastPaymentKey));
   }, []);
 
   useEffect(() => {
@@ -304,23 +300,6 @@ export function QuickAddScreen() {
       }
     }
   }, [categoryId, categories, storedLastCategoryId]);
-
-  useEffect(() => {
-    if (!paymentMethodId && storedLastPaymentId) {
-      const exists = paymentMethods.some(
-        (item) => item.id === storedLastPaymentId
-      );
-      if (exists) {
-        setPaymentMethodId(storedLastPaymentId);
-      }
-    }
-  }, [paymentMethodId, paymentMethods, storedLastPaymentId]);
-
-  useEffect(() => {
-    if (!paymentMethodId && !storedLastPaymentId && cashMethod) {
-      setPaymentMethodId(cashMethod.id);
-    }
-  }, [cashMethod, paymentMethodId, storedLastPaymentId]);
 
   useEffect(() => {
     if (paymentMethodsLoading || hasEnsuredCash || ensureCashMethod.isPending) {
@@ -387,11 +366,11 @@ export function QuickAddScreen() {
   }, [categories, recentCategories]);
 
   const paymentChoices = useMemo(() => {
-    const base = cashMethod ? [cashMethod] : [];
     const recent = recentPayments.filter((item) => item.id !== cashMethod?.id);
-    const exclude = new Set([...base, ...recent].map((item) => item.id));
+    const exclude = new Set(recent.map((item) => item.id));
     const next = cardPaymentMethods.filter((item) => !exclude.has(item.id));
-    return [...base, ...recent, ...next].slice(0, 4);
+    const cardChoices = [...recent, ...next].slice(0, cashMethod ? 3 : 4);
+    return cashMethod ? [...cardChoices, cashMethod] : cardChoices;
   }, [cardPaymentMethods, cashMethod, recentPayments]);
 
   const categoryItems = categories.map((item) => ({
