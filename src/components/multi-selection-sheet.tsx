@@ -15,8 +15,13 @@ type MultiSelectionSheetProps = {
   selectedIds: string[];
   onClose: () => void;
   onToggle: (id: string) => void;
-  onCreate: (name: string) => Promise<void>;
-  createLabel: string;
+  onCreate?: (name: string) => Promise<void>;
+  createLabel?: string;
+  modeOptions?: { id: string; label: string }[];
+  modeValue?: string;
+  onModeChange?: (id: string) => void;
+  onClear?: () => void;
+  clearLabel?: string;
 };
 
 export function MultiSelectionSheet({
@@ -28,6 +33,11 @@ export function MultiSelectionSheet({
   onToggle,
   onCreate,
   createLabel,
+  modeOptions,
+  modeValue,
+  onModeChange,
+  onClear,
+  clearLabel,
 }: MultiSelectionSheetProps) {
   const [query, setQuery] = useState("");
   const [newName, setNewName] = useState("");
@@ -88,39 +98,75 @@ export function MultiSelectionSheet({
           onChange={(event) => setQuery(event.target.value)}
         />
 
-        <form
-          className="mt-4 rounded-2xl border border-dashed border-zinc-200 p-3"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            const trimmed = newName.trim();
-            if (!trimmed) {
-              return;
-            }
-            setIsCreating(true);
-            await onCreate(trimmed);
-            setIsCreating(false);
-            setNewName("");
-          }}
-        >
-          <label className="text-xs uppercase tracking-[0.3em] text-zinc-400">
-            {createLabel}
-          </label>
-          <div className="mt-2 flex gap-2">
-            <input
-              className="flex-1 rounded-xl border border-zinc-200 px-3 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
-              value={newName}
-              onChange={(event) => setNewName(event.target.value)}
-              placeholder={`New ${title.toLowerCase()}`}
-            />
+        {onClear && selectedIds.length > 0 ? (
+          <div className="mt-3 flex justify-end">
             <button
-              type="submit"
-              disabled={isCreating}
-              className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition disabled:bg-zinc-400"
+              type="button"
+              onClick={onClear}
+              className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-400 transition hover:text-zinc-900"
             >
-              Add
+              {clearLabel ?? "Clear"}
             </button>
           </div>
-        </form>
+        ) : null}
+
+        {modeOptions && modeValue && onModeChange ? (
+          <div className="mt-4 flex items-center gap-2 rounded-full bg-zinc-100 p-1 text-sm">
+            {modeOptions.map((option) => {
+              const isActive = modeValue === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => onModeChange(option.id)}
+                  className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition ${
+                    isActive
+                      ? "bg-white text-zinc-900 shadow-sm"
+                      : "text-zinc-500 hover:text-zinc-900"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {onCreate && createLabel ? (
+          <form
+            className="mt-4 rounded-2xl border border-dashed border-zinc-200 p-3"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const trimmed = newName.trim();
+              if (!trimmed) {
+                return;
+              }
+              setIsCreating(true);
+              await onCreate(trimmed);
+              setIsCreating(false);
+              setNewName("");
+            }}
+          >
+            <label className="text-xs uppercase tracking-[0.3em] text-zinc-400">
+              {createLabel}
+            </label>
+            <div className="mt-2 flex gap-2">
+              <input
+                className="flex-1 rounded-xl border border-zinc-200 px-3 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+                value={newName}
+                onChange={(event) => setNewName(event.target.value)}
+                placeholder={`New ${title.toLowerCase()}`}
+              />
+              <button
+                type="submit"
+                disabled={isCreating}
+                className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition disabled:bg-zinc-400"
+              >
+                Add
+              </button>
+            </div>
+          </form>
+        ) : null}
 
         <div className="mt-4 max-h-72 overflow-y-auto rounded-2xl border border-zinc-100 bg-zinc-50/60 p-2">
           {filteredItems.length === 0 ? (

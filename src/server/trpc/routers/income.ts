@@ -25,32 +25,62 @@ const listInput = z
     from: z.date().optional(),
     to: z.date().optional(),
     cardId: z.string().cuid().optional(),
+    search: z.string().trim().min(1).optional(),
     take: z.number().int().min(1).max(200).optional(),
   })
   .optional();
 
+const buildWhere = (input?: z.infer<typeof listInput>) => {
+  const where: Prisma.IncomeEventWhereInput = {};
+  if (input?.from || input?.to) {
+    where.date = {};
+    if (input.from) {
+      where.date.gte = input.from;
+    }
+    if (input.to) {
+      where.date.lte = input.to;
+    }
+  }
+  if (input?.cardId) {
+    where.cardId = input.cardId;
+  }
+  if (input?.search) {
+    where.description = { contains: input.search, mode: "insensitive" };
+  }
+  return where;
+};
+
 export const incomeRouter = router({
   list: protectedProcedure.input(listInput).query(({ ctx, input }) => {
-    const where: Prisma.IncomeEventWhereInput = {};
-    if (input?.from || input?.to) {
-      where.date = {};
-      if (input.from) {
-        where.date.gte = input.from;
-      }
-      if (input.to) {
-        where.date.lte = input.to;
-      }
-    }
-    if (input?.cardId) {
-      where.cardId = input.cardId;
-    }
-
+    const where = buildWhere(input);
     return ctx.db.incomeEvent.findMany({
       where,
       orderBy: { date: "desc" },
       take: input?.take ?? 100,
       include: { card: true },
     });
+  }),
+  summary: protectedProcedure.input(listInput).query(async ({ ctx, input }) => {
+    const where = buildWhere(input);
+    const result = await ctx.db.incomeEvent.aggregate({
+      where,
+      _sum: {
+        revenueCents: true,
+        costCents: true,
+      },
+      _count: {
+        _all: true,
+      },
+    });
+
+    const revenueCents = result._sum.revenueCents ?? 0;
+    const costCents = result._sum.costCents ?? 0;
+    return {
+      revenueCents,
+      costCents,
+      netCents: revenueCents - costCents,
+      count: result._count._all,
+    };
   }),
   create: protectedProcedure.input(createInput).mutation(({ ctx, input }) =>
     ctx.db.incomeEvent.create({

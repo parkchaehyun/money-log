@@ -42,6 +42,7 @@ const listInput = z
     minNetCents: z.number().int().nonnegative().optional(),
     maxNetCents: z.number().int().nonnegative().optional(),
     tagIds: z.array(z.string().cuid()).optional(),
+    includeUntagged: z.boolean().optional(),
     take: z.number().int().min(1).max(200).optional(),
   })
   .optional();
@@ -50,6 +51,7 @@ type ListInput = z.infer<typeof listInput>;
 
 const buildWhere = (input?: ListInput) => {
   const where: Prisma.TransactionWhereInput = {};
+  const andFilters: Prisma.TransactionWhereInput[] = [];
 
   if (input?.from || input?.to) {
     where.date = {};
@@ -83,18 +85,41 @@ const buildWhere = (input?: ListInput) => {
   }
 
   if (input?.search) {
-    where.OR = [
-      { merchant: { contains: input.search, mode: "insensitive" } },
-      { notes: { contains: input.search, mode: "insensitive" } },
-    ];
+    andFilters.push({
+      OR: [
+        { merchant: { contains: input.search, mode: "insensitive" } },
+        { notes: { contains: input.search, mode: "insensitive" } },
+      ],
+    });
   }
 
-  if (input?.tagIds?.length) {
-    where.tags = {
-      some: {
-        tagId: { in: input.tagIds },
-      },
-    };
+  if (input?.tagIds?.length || input?.includeUntagged) {
+    const tagFilters: Prisma.TransactionWhereInput[] = [];
+    if (input.tagIds?.length) {
+      tagFilters.push({
+        tags: {
+          some: {
+            tagId: { in: input.tagIds },
+          },
+        },
+      });
+    }
+    if (input.includeUntagged) {
+      tagFilters.push({
+        tags: {
+          none: {},
+        },
+      });
+    }
+    if (tagFilters.length === 1) {
+      andFilters.push(tagFilters[0]);
+    } else if (tagFilters.length > 1) {
+      andFilters.push({ OR: tagFilters });
+    }
+  }
+
+  if (andFilters.length) {
+    where.AND = andFilters;
   }
 
   return where;
