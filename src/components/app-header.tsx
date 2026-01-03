@@ -3,10 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { SignOutButton } from "./sign-out-button";
-
 const navItems = [
-  { href: "/", label: "Add" },
+  { href: "/", label: "Spend" },
   { href: "/review", label: "Review" },
 ];
 
@@ -15,18 +13,10 @@ export function AppHeader() {
 
   return (
     <header className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-zinc-200 bg-white/90 px-5 py-4 shadow-sm backdrop-blur">
-      <div className="flex items-center gap-3">
-        <div className="grid size-10 place-items-center rounded-2xl bg-zinc-900 text-xs font-semibold uppercase tracking-[0.2em] text-white">
-          ML
-        </div>
-        <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-zinc-500">
-            Money Log
-          </p>
-          <p className="text-sm font-medium text-zinc-900">
-            Capture in seconds
-          </p>
-        </div>
+      <div className="flex items-center">
+        <p className="text-sm font-semibold tracking-tight text-zinc-900">
+          Money Log
+        </p>
       </div>
 
       <nav className="flex items-center gap-2 rounded-full bg-zinc-100 p-1 text-sm">
@@ -47,8 +37,6 @@ export function AppHeader() {
           );
         })}
       </nav>
-
-      <SignOutButton />
     </header>
   );
 }
