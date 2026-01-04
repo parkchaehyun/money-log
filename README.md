@@ -171,3 +171,8 @@ Create user:
 docker compose --env-file .env.production -f docker-compose.prod.yml exec app \
   node -e "const {PrismaClient}=require('@prisma/client'); const db=new PrismaClient(); (async()=>{ await db.user.create({data:{email:'you@example.com', passwordHash:'<HASH>'}}); await db.\$disconnect(); })().catch(console.error);"
 ```
+
+## License
+The MIT License (MIT)
+
+Copyright (c) 2026 Chaehyun Park
