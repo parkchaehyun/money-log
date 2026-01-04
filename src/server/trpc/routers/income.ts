@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../trpc";
@@ -30,8 +29,10 @@ const listInput = z
   })
   .optional();
 
+type IncomeWhere = Record<string, any>;
+
 const buildWhere = (input?: z.infer<typeof listInput>) => {
-  const where: Prisma.IncomeEventWhereInput = {};
+  const where: IncomeWhere = {};
   if (input?.from || input?.to) {
     where.date = {};
     if (input.from) {
@@ -95,22 +96,19 @@ export const incomeRouter = router({
     })
   ),
   update: protectedProcedure.input(updateInput).mutation(({ ctx, input }) => {
-    const data: Prisma.IncomeEventUncheckedUpdateInput = {};
-    if (input.date) {
-      data.date = input.date;
-    }
-    if (input.description !== undefined) {
-      data.description = input.description;
-    }
-    if (input.costCents !== undefined) {
-      data.costCents = input.costCents;
-    }
-    if (input.revenueCents !== undefined) {
-      data.revenueCents = input.revenueCents;
-    }
-    if (input.cardId !== undefined) {
-      data.cardId = input.cardId;
-    }
+    const data = {
+      ...(input.date !== undefined ? { date: input.date } : {}),
+      ...(input.description !== undefined
+        ? { description: input.description }
+        : {}),
+      ...(input.costCents !== undefined
+        ? { costCents: input.costCents }
+        : {}),
+      ...(input.revenueCents !== undefined
+        ? { revenueCents: input.revenueCents }
+        : {}),
+      ...(input.cardId !== undefined ? { cardId: input.cardId } : {}),
+    };
 
     return ctx.db.incomeEvent.update({
       where: { id: input.id },

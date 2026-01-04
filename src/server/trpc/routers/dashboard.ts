@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../trpc";
@@ -34,19 +33,20 @@ const buildMonthRange = (year: number, month: number) => ({
 });
 
 type SpendFilters = z.infer<typeof spendFilterInput>;
+type TransactionWhere = Record<string, unknown>;
 
 const buildSpendWhere = (
   filters: SpendFilters,
   start: Date,
   end: Date
-): Prisma.TransactionWhereInput => {
-  const where: Prisma.TransactionWhereInput = {
+): TransactionWhere => {
+  const where: TransactionWhere = {
     date: {
       gte: start,
       lte: end,
     },
   };
-  const andFilters: Prisma.TransactionWhereInput[] = [];
+  const andFilters: TransactionWhere[] = [];
 
   if (filters?.categoryIds?.length) {
     where.categoryId = { in: filters.categoryIds };
@@ -56,7 +56,7 @@ const buildSpendWhere = (
   }
 
   if (filters?.tagIds?.length || filters?.includeNoTags) {
-    const tagFilters: Prisma.TransactionWhereInput[] = [];
+    const tagFilters: TransactionWhere[] = [];
     if (filters?.tagIds?.length) {
       tagFilters.push({
         tags: {
@@ -133,7 +133,10 @@ export const dashboardRouter = router({
     .query(async ({ ctx, input }) => {
       const { start, end } = buildYearRange(input.year);
       const spendWhere = buildSpendWhere(input.filters, start, end);
-      const [spendEntries, incomeEntries] = await Promise.all([
+      const [spendEntries, incomeEntries]: [
+        Array<{ date: Date; netCents: number }>,
+        Array<{ date: Date; revenueCents: number; costCents: number }>
+      ] = await Promise.all([
         ctx.db.transaction.findMany({
           where: spendWhere,
           select: { date: true, netCents: true },
@@ -182,7 +185,11 @@ export const dashboardRouter = router({
     .query(async ({ ctx, input }) => {
       const { start, end } = buildMonthRange(input.year, input.month);
       const spendWhere = buildSpendWhere(input.filters, start, end);
-      const entries = await ctx.db.transaction.findMany({
+      const entries: Array<{
+        netCents: number;
+        categoryId: string | null;
+        category: { name: string } | null;
+      }> = await ctx.db.transaction.findMany({
         where: spendWhere,
         select: {
           netCents: true,
@@ -219,7 +226,11 @@ export const dashboardRouter = router({
     .query(async ({ ctx, input }) => {
       const { start, end } = buildMonthRange(input.year, input.month);
       const spendWhere = buildSpendWhere(input.filters, start, end);
-      const entries = await ctx.db.transaction.findMany({
+      const entries: Array<{
+        grossCents: number;
+        discountCents: number;
+        paymentMethod: { card: { id: string; name: string } | null } | null;
+      }> = await ctx.db.transaction.findMany({
         where: {
           ...spendWhere,
           paymentMethod: { type: "CARD" },

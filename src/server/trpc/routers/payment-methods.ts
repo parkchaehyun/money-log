@@ -1,4 +1,4 @@
-import { PaymentMethodType, Prisma } from "@prisma/client";
+import { PaymentMethodType } from "@prisma/client";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../trpc";
@@ -34,16 +34,11 @@ export const paymentMethodsRouter = router({
     })
   ),
   update: protectedProcedure.input(updateInput).mutation(({ ctx, input }) => {
-    const data: Prisma.PaymentMethodUncheckedUpdateInput = {};
-    if (input.name !== undefined) {
-      data.name = input.name;
-    }
-    if (input.type !== undefined) {
-      data.type = input.type;
-    }
-    if (input.cardId !== undefined) {
-      data.cardId = input.cardId;
-    }
+    const data = {
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.type !== undefined ? { type: input.type } : {}),
+      ...(input.cardId !== undefined ? { cardId: input.cardId } : {}),
+    };
 
     return ctx.db.paymentMethod.update({
       where: { id: input.id },

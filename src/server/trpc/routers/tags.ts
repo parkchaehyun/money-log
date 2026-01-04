@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../trpc";
@@ -24,10 +23,9 @@ export const tagsRouter = router({
     })
   ),
   update: protectedProcedure.input(updateInput).mutation(({ ctx, input }) => {
-    const data: Prisma.TagUpdateInput = {};
-    if (input.name !== undefined) {
-      data.name = input.name;
-    }
+    const data = {
+      ...(input.name !== undefined ? { name: input.name } : {}),
+    };
     return ctx.db.tag.update({
       where: { id: input.id },
       data,

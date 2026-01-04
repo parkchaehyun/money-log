@@ -8,8 +8,8 @@ services:
       - .env.production
     depends_on:
       - db
-    expose:
-      - "3000"
+    ports:
+      - "3000:3000"
 
   db:
     image: postgres:16
@@ -20,15 +20,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
-
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    restart: unless-stopped
-    command: tunnel --no-autoupdate run
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
-    depends_on:
-      - app
 
 volumes:
   pgdata:

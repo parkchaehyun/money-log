@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../trpc";
@@ -29,13 +28,10 @@ export const categoriesRouter = router({
     })
   ),
   update: protectedProcedure.input(updateInput).mutation(({ ctx, input }) => {
-    const data: Prisma.CategoryUncheckedUpdateInput = {};
-    if (input.name !== undefined) {
-      data.name = input.name;
-    }
-    if (input.parentId !== undefined) {
-      data.parentId = input.parentId;
-    }
+    const data = {
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
+    };
 
     return ctx.db.category.update({
       where: { id: input.id },

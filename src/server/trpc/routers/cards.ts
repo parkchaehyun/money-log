@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../trpc";
@@ -37,19 +36,14 @@ export const cardsRouter = router({
     })
   ),
   update: protectedProcedure.input(updateInput).mutation(({ ctx, input }) => {
-    const data: Prisma.CardUpdateInput = {};
-    if (input.name !== undefined) {
-      data.name = input.name;
-    }
-    if (input.imageKey !== undefined) {
-      data.imageKey = input.imageKey;
-    }
-    if (input.colorHex !== undefined) {
-      data.colorHex = input.colorHex;
-    }
-    if (input.minSpendCents !== undefined) {
-      data.minSpendCents = input.minSpendCents;
-    }
+    const data = {
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.imageKey !== undefined ? { imageKey: input.imageKey } : {}),
+      ...(input.colorHex !== undefined ? { colorHex: input.colorHex } : {}),
+      ...(input.minSpendCents !== undefined
+        ? { minSpendCents: input.minSpendCents }
+        : {}),
+    };
 
     return ctx.db.card.update({
       where: { id: input.id },

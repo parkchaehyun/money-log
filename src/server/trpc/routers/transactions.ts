@@ -1,5 +1,4 @@
 import { TRPCError } from "@trpc/server";
-import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../trpc";
@@ -49,9 +48,11 @@ const listInput = z
 
 type ListInput = z.infer<typeof listInput>;
 
+type TransactionWhere = Record<string, any>;
+
 const buildWhere = (input?: ListInput) => {
-  const where: Prisma.TransactionWhereInput = {};
-  const andFilters: Prisma.TransactionWhereInput[] = [];
+  const where: TransactionWhere = {};
+  const andFilters: TransactionWhere[] = [];
 
   if (input?.from || input?.to) {
     where.date = {};
@@ -94,7 +95,7 @@ const buildWhere = (input?: ListInput) => {
   }
 
   if (input?.tagIds?.length || input?.includeUntagged) {
-    const tagFilters: Prisma.TransactionWhereInput[] = [];
+    const tagFilters: TransactionWhere[] = [];
     if (input.tagIds?.length) {
       tagFilters.push({
         tags: {
@@ -223,39 +224,34 @@ export const transactionsRouter = router({
         });
       }
 
-      const data: Prisma.TransactionUpdateInput = {
+      const data = {
         netCents: grossCents - discountCents,
+        ...(input.date !== undefined ? { date: input.date } : {}),
+        ...(input.merchant !== undefined ? { merchant: input.merchant } : {}),
+        ...(input.grossCents !== undefined
+          ? { grossCents: input.grossCents }
+          : {}),
+        ...(input.discountCents !== undefined
+          ? { discountCents: input.discountCents }
+          : {}),
+        ...(input.notes !== undefined ? { notes: input.notes } : {}),
+        ...(input.categoryId !== undefined
+          ? { categoryId: input.categoryId }
+          : {}),
+        ...(input.paymentMethodId !== undefined
+          ? { paymentMethodId: input.paymentMethodId }
+          : {}),
+        ...(input.tagIds !== undefined
+          ? {
+              tags: {
+                deleteMany: {},
+                create: input.tagIds.map((tagId) => ({
+                  tag: { connect: { id: tagId } },
+                })),
+              },
+            }
+          : {}),
       };
-
-      if (input.date) {
-        data.date = input.date;
-      }
-      if (input.merchant !== undefined) {
-        data.merchant = input.merchant;
-      }
-      if (input.grossCents !== undefined) {
-        data.grossCents = input.grossCents;
-      }
-      if (input.discountCents !== undefined) {
-        data.discountCents = input.discountCents;
-      }
-      if (input.notes !== undefined) {
-        data.notes = input.notes;
-      }
-      if (input.categoryId !== undefined) {
-        data.categoryId = input.categoryId;
-      }
-      if (input.paymentMethodId !== undefined) {
-        data.paymentMethodId = input.paymentMethodId;
-      }
-      if (input.tagIds !== undefined) {
-        data.tags = {
-          deleteMany: {},
-          create: input.tagIds.map((tagId) => ({
-            tag: { connect: { id: tagId } },
-          })),
-        };
-      }
 
       return ctx.db.transaction.update({
         where: { id: input.id },

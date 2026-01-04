@@ -10,6 +10,8 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/moneylog
+RUN npx prisma generate
 RUN npm run build
 
 FROM node:20-alpine AS runner
@@ -20,5 +22,7 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 EXPOSE 3000
 CMD ["npm", "run", "start"]
