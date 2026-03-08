@@ -121,4 +121,11 @@ export const incomeRouter = router({
     .mutation(({ ctx, input }) =>
       ctx.db.incomeEvent.delete({ where: { id: input.id } })
     ),
+  dateRange: protectedProcedure.query(async ({ ctx }) => {
+    const result = await ctx.db.incomeEvent.aggregate({
+      _min: { date: true },
+      _max: { date: true },
+    });
+    return { min: result._min.date, max: result._max.date };
+  }),
 });

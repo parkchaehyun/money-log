@@ -272,4 +272,11 @@ export const transactionsRouter = router({
     .mutation(({ ctx, input }) =>
       ctx.db.transaction.delete({ where: { id: input.id } })
     ),
+  dateRange: protectedProcedure.query(async ({ ctx }) => {
+    const result = await ctx.db.transaction.aggregate({
+      _min: { date: true },
+      _max: { date: true },
+    });
+    return { min: result._min.date, max: result._max.date };
+  }),
 });

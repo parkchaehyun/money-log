@@ -118,12 +118,17 @@ export function ReviewScreen() {
   const [tagSheetOpen, setTagSheetOpen] = useState(false);
   const [spendTake, setSpendTake] = useState(60);
   const [incomeTake, setIncomeTake] = useState(60);
+  const [selectedMonth, setSelectedMonth] = useState("");
   const [spendEditingId, setSpendEditingId] = useState<string | null>(null);
   const [spendDraft, setSpendDraft] = useState({
     merchant: "",
     gross: "",
     discount: "",
+    date: "",
+    notes: "",
+    tagIds: [] as string[],
   });
+  const [spendEditTagSheetOpen, setSpendEditTagSheetOpen] = useState(false);
   const [spendEditError, setSpendEditError] = useState<string | null>(null);
   const [incomeEditingId, setIncomeEditingId] = useState<string | null>(null);
   const [incomeDraft, setIncomeDraft] = useState({
@@ -131,6 +136,7 @@ export function ReviewScreen() {
     revenue: "",
     cost: "",
     cardId: "",
+    date: "",
   });
   const [incomeEditError, setIncomeEditError] = useState<string | null>(null);
 
@@ -191,6 +197,40 @@ export function ReviewScreen() {
     enabled: mode === "income",
   });
 
+  const spendDateRangeQuery = trpc.transactions.dateRange.useQuery();
+  const incomeDateRangeQuery = trpc.income.dateRange.useQuery();
+
+  const monthOptions = useMemo(() => {
+    const spendMin = spendDateRangeQuery.data?.min;
+    const spendMax = spendDateRangeQuery.data?.max;
+    const incomeMin = incomeDateRangeQuery.data?.min;
+    const incomeMax = incomeDateRangeQuery.data?.max;
+
+    const dates = [spendMin, spendMax, incomeMin, incomeMax].filter(
+      (d): d is Date => d instanceof Date
+    );
+    if (dates.length === 0) return [];
+
+    const min = new Date(Math.min(...dates.map((d) => d.getTime())));
+    const max = new Date(Math.max(...dates.map((d) => d.getTime())));
+
+    const options: { value: string; label: string }[] = [];
+    const cursor = new Date(min.getFullYear(), min.getMonth(), 1);
+    const end = new Date(max.getFullYear(), max.getMonth(), 1);
+    while (cursor <= end) {
+      const year = cursor.getFullYear();
+      const month = cursor.getMonth();
+      const value = `${year}-${String(month + 1).padStart(2, "0")}`;
+      const label = cursor.toLocaleString("en-US", {
+        month: "short",
+        year: "numeric",
+      });
+      options.push({ value, label });
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+    return options.reverse();
+  }, [spendDateRangeQuery.data, incomeDateRangeQuery.data]);
+
   const categoriesQuery = trpc.categories.list.useQuery(undefined, {
     enabled: mode === "spend",
   });
@@ -246,6 +286,10 @@ export function ReviewScreen() {
     },
   });
 
+  const createTag = trpc.tags.create.useMutation({
+    onSuccess: () => utils.tags.list.invalidate(),
+  });
+
   const deleteTransaction = trpc.transactions.delete.useMutation({
     onSuccess: async () => {
       await utils.transactions.list.invalidate();
@@ -294,6 +338,7 @@ export function ReviewScreen() {
   const resetFilters = () => {
     setFromDate(defaultFromDate());
     setToDate(defaultToDate());
+    setSelectedMonth("");
     setSearch("");
     setCategoryId("");
     setPaymentMethodId("");
@@ -363,6 +408,9 @@ export function ReviewScreen() {
       merchant: entry.merchant ?? "",
       gross: String(entry.grossCents),
       discount: String(entry.discountCents),
+      date: formatLocalDate(entry.date),
+      notes: entry.notes ?? "",
+      tagIds: entry.tags.map((t) => t.tagId),
     });
     setSpendEditError(null);
   };
@@ -378,6 +426,7 @@ export function ReviewScreen() {
       revenue: String(entry.revenueCents),
       cost: String(entry.costCents),
       cardId: entry.cardId ?? "",
+      date: formatLocalDate(entry.date),
     });
     setIncomeEditError(null);
   };
@@ -385,12 +434,17 @@ export function ReviewScreen() {
   const handleSpendSave = async (entryId: string) => {
     const grossCents = Number.parseInt(spendDraft.gross || "0", 10) || 0;
     const discountCents = Number.parseInt(spendDraft.discount || "0", 10) || 0;
+    const date = parseDateInput(spendDraft.date);
     if (grossCents <= 0) {
       setSpendEditError("Enter an amount.");
       return;
     }
     if (discountCents > grossCents) {
       setSpendEditError("Discount cannot exceed amount.");
+      return;
+    }
+    if (!date) {
+      setSpendEditError("Enter a valid date.");
       return;
     }
     setSpendEditError(null);
@@ -400,6 +454,9 @@ export function ReviewScreen() {
         merchant: spendDraft.merchant.trim() || null,
         grossCents,
         discountCents,
+        date,
+        notes: spendDraft.notes.trim() || null,
+        tagIds: spendDraft.tagIds,
       });
     } catch {
       setSpendEditError("Unable to update entry.");
@@ -409,12 +466,17 @@ export function ReviewScreen() {
   const handleIncomeSave = async (entryId: string) => {
     const revenueCents = Number.parseInt(incomeDraft.revenue || "0", 10) || 0;
     const costCents = Number.parseInt(incomeDraft.cost || "0", 10) || 0;
+    const date = parseDateInput(incomeDraft.date);
     if (revenueCents <= 0 && costCents <= 0) {
       setIncomeEditError("Enter revenue or cost.");
       return;
     }
     if (!incomeDraft.description.trim()) {
       setIncomeEditError("Add a description.");
+      return;
+    }
+    if (!date) {
+      setIncomeEditError("Enter a valid date.");
       return;
     }
     setIncomeEditError(null);
@@ -425,6 +487,7 @@ export function ReviewScreen() {
         revenueCents,
         costCents,
         cardId: incomeDraft.cardId || null,
+        date,
       });
     } catch {
       setIncomeEditError("Unable to update entry.");
@@ -503,6 +566,34 @@ export function ReviewScreen() {
             />
           </div>
 
+          <div className="md:col-span-2">
+            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+              Month
+            </label>
+            <select
+              className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900"
+              value={selectedMonth}
+              onChange={(event) => {
+                const value = event.target.value;
+                setSelectedMonth(value);
+                if (value) {
+                  const [y, m] = value.split("-").map(Number);
+                  const first = new Date(y, m - 1, 1);
+                  const last = new Date(y, m, 0);
+                  setFromDate(formatLocalDate(first));
+                  setToDate(formatLocalDate(last));
+                }
+              }}
+            >
+              <option value="">Custom range</option>
+              {monthOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
               From
@@ -511,7 +602,10 @@ export function ReviewScreen() {
               type="date"
               className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900"
               value={fromDate}
-              onChange={(event) => setFromDate(event.target.value)}
+              onChange={(event) => {
+                setFromDate(event.target.value);
+                setSelectedMonth("");
+              }}
             />
           </div>
           <div>
@@ -522,7 +616,10 @@ export function ReviewScreen() {
               type="date"
               className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900"
               value={toDate}
-              onChange={(event) => setToDate(event.target.value)}
+              onChange={(event) => {
+                setToDate(event.target.value);
+                setSelectedMonth("");
+              }}
             />
           </div>
 
@@ -741,6 +838,11 @@ export function ReviewScreen() {
                           {item.category?.name ?? "Uncategorized"} ·{" "}
                           {item.paymentMethod?.name ?? "Unknown payment"}
                         </p>
+                        {item.notes ? (
+                          <p className="mt-0.5 text-xs text-zinc-400 italic">
+                            {item.notes}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="text-right">
                         <p className="text-lg font-semibold text-zinc-900">
@@ -777,6 +879,22 @@ export function ReviewScreen() {
                           </div>
                           <div>
                             <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                              Date
+                            </label>
+                            <input
+                              type="date"
+                              className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+                              value={spendDraft.date}
+                              onChange={(event) =>
+                                setSpendDraft((prev) => ({
+                                  ...prev,
+                                  date: event.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
                               Amount
                             </label>
                             <input
@@ -806,6 +924,47 @@ export function ReviewScreen() {
                                 }))
                               }
                             />
+                          </div>
+                          <div className="md:col-span-3">
+                            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                              Notes
+                            </label>
+                            <input
+                              className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+                              placeholder="Optional"
+                              value={spendDraft.notes}
+                              onChange={(event) =>
+                                setSpendDraft((prev) => ({
+                                  ...prev,
+                                  notes: event.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                          <div className="md:col-span-3">
+                            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                              Tags
+                            </label>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSpendEditTagSheetOpen(true);
+                              }}
+                              className="mt-2 flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 transition hover:border-zinc-300"
+                            >
+                              <span>
+                                {spendDraft.tagIds.length === 0
+                                  ? "No tags"
+                                  : tags
+                                      .filter((t) => spendDraft.tagIds.includes(t.id))
+                                      .map((t) => t.name)
+                                      .join(", ")}
+                              </span>
+                              <span className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                                Edit
+                              </span>
+                            </button>
                           </div>
                         </div>
                         {spendEditError ? (
@@ -934,6 +1093,22 @@ export function ReviewScreen() {
                                   setIncomeDraft((prev) => ({
                                     ...prev,
                                     description: event.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                                Date
+                              </label>
+                              <input
+                                type="date"
+                                className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+                                value={incomeDraft.date}
+                                onChange={(event) =>
+                                  setIncomeDraft((prev) => ({
+                                    ...prev,
+                                    date: event.target.value,
                                   }))
                                 }
                               />
@@ -1079,6 +1254,25 @@ export function ReviewScreen() {
           setIncludeUntagged(false);
         }}
         clearLabel="Clear tags"
+      />
+      <MultiSelectionSheet
+        open={spendEditTagSheetOpen}
+        title="Tags"
+        items={tags.map((tag) => ({ id: tag.id, label: tag.name }))}
+        selectedIds={spendDraft.tagIds}
+        onClose={() => setSpendEditTagSheetOpen(false)}
+        onToggle={(id) =>
+          setSpendDraft((prev) => ({
+            ...prev,
+            tagIds: prev.tagIds.includes(id)
+              ? prev.tagIds.filter((t) => t !== id)
+              : [...prev.tagIds, id],
+          }))
+        }
+        onClear={() => setSpendDraft((prev) => ({ ...prev, tagIds: [] }))}
+        clearLabel="Clear tags"
+        onCreate={async (name) => { await createTag.mutateAsync({ name }); }}
+        createLabel="Add new tag"
       />
     </section>
   );
