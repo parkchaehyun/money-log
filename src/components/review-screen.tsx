@@ -821,6 +821,9 @@ export function ReviewScreen() {
                     aria-expanded={isEditing}
                     onClick={() => toggleSpendEdit(item)}
                     onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) {
+                        return;
+                      }
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
                         toggleSpendEdit(item);
@@ -1041,6 +1044,9 @@ export function ReviewScreen() {
                       aria-expanded={isEditing}
                       onClick={() => toggleIncomeEdit(item)}
                       onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) {
+                          return;
+                        }
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
                           toggleIncomeEdit(item);
