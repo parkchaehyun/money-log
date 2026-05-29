@@ -106,7 +106,15 @@ const defaultFromDate = () => {
   return formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1));
 };
 
-const defaultToDate = () => formatLocalDate(new Date());
+const defaultToDate = () => {
+  const now = new Date();
+  return formatLocalDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+};
+
+const currentMonthValue = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+};
 
 export function ReviewScreen() {
   const utils = trpc.useUtils();
@@ -125,7 +133,7 @@ export function ReviewScreen() {
   const [tagSheetOpen, setTagSheetOpen] = useState(false);
   const [spendTake, setSpendTake] = useState(60);
   const [incomeTake, setIncomeTake] = useState(60);
-  const [selectedMonth, setSelectedMonth] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthValue);
   const [spendEditingId, setSpendEditingId] = useState<string | null>(null);
   const [spendDraft, setSpendDraft] = useState({
     merchant: "",
@@ -213,10 +221,11 @@ export function ReviewScreen() {
     const incomeMin = incomeDateRangeQuery.data?.min;
     const incomeMax = incomeDateRangeQuery.data?.max;
 
-    const dates = [spendMin, spendMax, incomeMin, incomeMax].filter(
+    // Always include "now" so the current month is selectable (and is the
+    // default), even when there's no data in it yet.
+    const dates = [spendMin, spendMax, incomeMin, incomeMax, new Date()].filter(
       (d): d is Date => d instanceof Date
     );
-    if (dates.length === 0) return [];
 
     const min = new Date(Math.min(...dates.map((d) => d.getTime())));
     const max = new Date(Math.max(...dates.map((d) => d.getTime())));
@@ -349,7 +358,7 @@ export function ReviewScreen() {
   const resetFilters = () => {
     setFromDate(defaultFromDate());
     setToDate(defaultToDate());
-    setSelectedMonth("");
+    setSelectedMonth(currentMonthValue());
     setSearch("");
     setCategoryId("");
     setPaymentMethodId("");
