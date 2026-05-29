@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import { hangulIncludes, hangulIsExact } from "@/lib/hangul-search";
+import { hangulIncludes } from "@/lib/hangul-search";
 
 type AutocompleteFieldProps<T> = {
   label: string;
@@ -43,12 +43,9 @@ export function AutocompleteField<T>({
     }
     const result: T[] = [];
     for (const item of items) {
-      const name = getPrimary(item);
-      // Skip an exact match — no point suggesting what's already typed.
-      if (hangulIsExact(name, query)) {
-        continue;
-      }
-      if (hangulIncludes(name, query)) {
+      // Keep exact matches too, so you can reselect a past entry to reuse its
+      // amount / category / etc.
+      if (hangulIncludes(getPrimary(item), query)) {
         result.push(item);
         if (result.length >= maxResults) {
           break;

@@ -14,7 +14,3 @@ export function hangulIncludes(text: string, query: string): boolean {
   }
   return normalize(text).includes(q);
 }
-
-export function hangulIsExact(text: string, query: string): boolean {
-  return normalize(text) === normalize(query);
-}
