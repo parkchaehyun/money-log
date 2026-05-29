@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import { hangulIncludes } from "@/lib/hangul-search";
+import { disassembleHangul } from "@/lib/hangul-search";
 
 type AutocompleteFieldProps<T> = {
   label: string;
@@ -37,22 +37,24 @@ export function AutocompleteField<T>({
   const [focused, setFocused] = useState(false);
 
   const matches = useMemo(() => {
-    const query = value.trim();
+    const query = disassembleHangul(value.trim());
     if (!query) {
       return [];
     }
-    const result: T[] = [];
+    // Rank prefix matches above internal-substring matches; within each tier
+    // the incoming order (most-recently-used first) is preserved. Exact
+    // matches are kept so a past entry can be reselected to reuse its amount.
+    const prefix: T[] = [];
+    const substring: T[] = [];
     for (const item of items) {
-      // Keep exact matches too, so you can reselect a past entry to reuse its
-      // amount / category / etc.
-      if (hangulIncludes(getPrimary(item), query)) {
-        result.push(item);
-        if (result.length >= maxResults) {
-          break;
-        }
+      const name = disassembleHangul(getPrimary(item));
+      if (name.startsWith(query)) {
+        prefix.push(item);
+      } else if (name.includes(query)) {
+        substring.push(item);
       }
     }
-    return result;
+    return [...prefix, ...substring].slice(0, maxResults);
   }, [value, items, getPrimary, maxResults]);
 
   const open = focused && matches.length > 0;
