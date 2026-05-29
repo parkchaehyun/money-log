@@ -32,6 +32,7 @@ const ruleObject = z.object({
 type RuleInput = z.infer<typeof ruleObject>;
 
 const checkRule = (val: RuleInput, ctx: z.RefinementCtx) => {
+  const isAuto = val.autoConfirm ?? false;
   if (val.cadence === "MONTHLY" && val.dayOfMonth == null) {
     ctx.addIssue({
       code: "custom",
@@ -54,14 +55,31 @@ const checkRule = (val: RuleInput, ctx: z.RefinementCtx) => {
     });
   }
   if (val.kind === "SPEND") {
-    if (val.grossCents == null || val.grossCents <= 0) {
+    const grossCents = val.grossCents ?? null;
+    const discountCents = val.discountCents ?? null;
+    if (grossCents == null) {
+      if (isAuto) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Enter an amount for automatic rules.",
+          path: ["grossCents"],
+        });
+      }
+      if ((discountCents ?? 0) > 0) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Enter an amount before adding a discount.",
+          path: ["grossCents"],
+        });
+      }
+    } else if (grossCents <= 0) {
       ctx.addIssue({
         code: "custom",
-        message: "Enter an amount.",
+        message: "Amount must be greater than zero.",
         path: ["grossCents"],
       });
     }
-    if ((val.discountCents ?? 0) > (val.grossCents ?? 0)) {
+    if (grossCents != null && (discountCents ?? 0) > grossCents) {
       ctx.addIssue({
         code: "custom",
         message: "Discount cannot exceed the amount.",
@@ -76,10 +94,26 @@ const checkRule = (val: RuleInput, ctx: z.RefinementCtx) => {
         path: ["description"],
       });
     }
-    if ((val.revenueCents ?? 0) <= 0 && (val.costCents ?? 0) <= 0) {
+    const revenueCents = val.revenueCents ?? null;
+    const costCents = val.costCents ?? null;
+    if (revenueCents != null && revenueCents <= 0) {
       ctx.addIssue({
         code: "custom",
-        message: "Enter revenue or cost.",
+        message: "Revenue must be blank or greater than zero.",
+        path: ["revenueCents"],
+      });
+    }
+    if (costCents != null && costCents <= 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Cost must be blank or greater than zero.",
+        path: ["costCents"],
+      });
+    }
+    if (isAuto && (revenueCents ?? 0) <= 0 && (costCents ?? 0) <= 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Enter revenue or cost for automatic rules.",
         path: ["revenueCents"],
       });
     }
@@ -157,14 +191,14 @@ function buildRuleData(input: RuleInput, tagIds: string[]) {
     endDate: input.endDate ?? null,
     autoConfirm: input.autoConfirm ?? false,
     merchant: isSpend ? input.merchant ?? null : null,
-    grossCents: isSpend ? input.grossCents ?? 0 : null,
-    discountCents: isSpend ? input.discountCents ?? 0 : null,
+    grossCents: isSpend ? input.grossCents ?? null : null,
+    discountCents: isSpend ? input.discountCents ?? null : null,
     categoryId: isSpend ? input.categoryId ?? null : null,
     paymentMethodId: isSpend ? input.paymentMethodId ?? null : null,
     tagIds: isSpend ? tagIds : [],
     description: isSpend ? null : input.description ?? null,
-    revenueCents: isSpend ? null : input.revenueCents ?? 0,
-    costCents: isSpend ? null : input.costCents ?? 0,
+    revenueCents: isSpend ? null : input.revenueCents ?? null,
+    costCents: isSpend ? null : input.costCents ?? null,
     cardId: isSpend ? null : input.cardId ?? null,
   };
 }
@@ -197,6 +231,12 @@ async function materialize(
   const date = overrides.date ?? dueDate;
   if (rule.kind === "SPEND") {
     const grossCents = pick(overrides.grossCents, rule.grossCents ?? 0);
+    if (grossCents <= 0) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Enter an amount to add this recurring item.",
+      });
+    }
     const discountCents = Math.min(
       pick(overrides.discountCents, rule.discountCents ?? 0),
       grossCents
@@ -231,6 +271,12 @@ async function materialize(
 
   const revenueCents = pick(overrides.revenueCents, rule.revenueCents ?? 0);
   const costCents = pick(overrides.costCents, rule.costCents ?? 0);
+  if (revenueCents <= 0 && costCents <= 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Enter revenue or cost to add this recurring item.",
+    });
+  }
   return db.incomeEvent.create({
     data: {
       userId,

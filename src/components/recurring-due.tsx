@@ -13,6 +13,13 @@ const formatDigits = (value: string) => {
   const parsed = Number.parseInt(value, 10);
   return Number.isNaN(parsed) ? "" : formatter.format(parsed);
 };
+const centsToInput = (value: number | null | undefined) =>
+  value && value > 0 ? String(value) : "";
+const parseOptionalCents = (value: string) => {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) ? undefined : parsed;
+};
 const formatLocalDate = (value: Date) => {
   const y = value.getFullYear();
   const m = String(value.getMonth() + 1).padStart(2, "0");
@@ -125,13 +132,14 @@ function DueCard({
   const isSpend = rule.kind === "SPEND";
 
   const [editing, setEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [date, setDate] = useState(() => formatLocalDate(occ.dueDate));
   const [merchant, setMerchant] = useState(rule.merchant ?? "");
   const [amount, setAmount] = useState(
-    String(isSpend ? rule.grossCents ?? 0 : rule.revenueCents ?? 0)
+    centsToInput(isSpend ? rule.grossCents : rule.revenueCents)
   );
   const [second, setSecond] = useState(
-    String(isSpend ? rule.discountCents ?? 0 : rule.costCents ?? 0)
+    centsToInput(isSpend ? rule.discountCents : rule.costCents)
   );
   const [description, setDescription] = useState(rule.description ?? "");
   const [categoryId, setCategoryId] = useState(rule.categoryId ?? "");
@@ -147,15 +155,24 @@ function DueCard({
     ? [rule.category?.name, rule.paymentMethod?.name].filter(Boolean).join(" · ")
     : rule.card?.name ?? "";
 
-  const amountNum = () => {
-    const n = Number.parseInt(amount || "", 10);
-    return Number.isNaN(n) ? undefined : n;
-  };
-  const secondNum = () => Number.parseInt(second || "0", 10) || 0;
-
   const handleAdd = () => {
+    setError(null);
+    const amountCents = parseOptionalCents(amount);
+    const secondCents = parseOptionalCents(second);
     if (!editing) {
-      onConfirm(isSpend ? { grossCents: amountNum() } : { revenueCents: amountNum() });
+      if (isSpend) {
+        if (!amountCents || amountCents <= 0) {
+          setError("Enter an amount before adding.");
+          return;
+        }
+        onConfirm({ grossCents: amountCents });
+        return;
+      }
+      if ((amountCents ?? 0) <= 0 && (secondCents ?? 0) <= 0) {
+        setError("Enter revenue or cost before adding.");
+        return;
+      }
+      onConfirm({ revenueCents: amountCents, costCents: secondCents });
       return;
     }
     const parsedDate = new Date(`${date}T12:00:00`);
@@ -163,20 +180,32 @@ function DueCard({
       ? undefined
       : parsedDate;
     if (isSpend) {
+      if (!amountCents || amountCents <= 0) {
+        setError("Enter an amount before adding.");
+        return;
+      }
+      if ((secondCents ?? 0) > amountCents) {
+        setError("Discount cannot exceed the amount.");
+        return;
+      }
       onConfirm({
         date: dateOverride,
         merchant: merchant.trim() || null,
-        grossCents: amountNum(),
-        discountCents: secondNum(),
+        grossCents: amountCents,
+        discountCents: secondCents,
         categoryId: categoryId || null,
         paymentMethodId: paymentMethodId || null,
       });
     } else {
+      if ((amountCents ?? 0) <= 0 && (secondCents ?? 0) <= 0) {
+        setError("Enter revenue or cost before adding.");
+        return;
+      }
       onConfirm({
         date: dateOverride,
         description: description.trim() || undefined,
-        revenueCents: amountNum(),
-        costCents: secondNum(),
+        revenueCents: amountCents,
+        costCents: secondCents,
         cardId: cardId || null,
       });
     }
@@ -205,9 +234,13 @@ function DueCard({
               <input
                 inputMode="numeric"
                 aria-label="Amount"
+                placeholder="Amount"
                 className="w-32 rounded-xl border border-zinc-200 py-2 pl-7 pr-3 text-right text-sm font-semibold text-zinc-900 outline-none transition focus:border-zinc-900"
                 value={formatDigits(amount)}
-                onChange={(e) => setAmount(sanitizeNumber(e.target.value))}
+                onChange={(e) => {
+                  setError(null);
+                  setAmount(sanitizeNumber(e.target.value));
+                }}
               />
             </div>
           ) : null}
@@ -236,6 +269,8 @@ function DueCard({
           </button>
         </div>
       </div>
+
+      {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
 
       {editing ? (
         <div className="mt-4 grid gap-3 border-t border-zinc-100 pt-4 md:grid-cols-2">
@@ -266,7 +301,10 @@ function DueCard({
               inputMode="numeric"
               className={fieldCls}
               value={formatDigits(amount)}
-              onChange={(e) => setAmount(sanitizeNumber(e.target.value))}
+              onChange={(e) => {
+                setError(null);
+                setAmount(sanitizeNumber(e.target.value));
+              }}
             />
           </div>
           <div>
@@ -275,7 +313,10 @@ function DueCard({
               inputMode="numeric"
               className={fieldCls}
               value={formatDigits(second)}
-              onChange={(e) => setSecond(sanitizeNumber(e.target.value))}
+              onChange={(e) => {
+                setError(null);
+                setSecond(sanitizeNumber(e.target.value));
+              }}
             />
           </div>
           {isSpend ? (

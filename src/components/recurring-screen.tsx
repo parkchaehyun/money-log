@@ -17,6 +17,11 @@ const formatDigits = (value: string) => {
   const parsed = Number.parseInt(value, 10);
   return Number.isNaN(parsed) ? "" : formatter.format(parsed);
 };
+const parseOptionalCents = (value: string) => {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+};
 const formatLocalDate = (value: Date) => {
   const y = value.getFullYear();
   const m = String(value.getMonth() + 1).padStart(2, "0");
@@ -206,13 +211,17 @@ export function RecurringScreen() {
       endDate: rule.endDate ? formatLocalDate(rule.endDate) : endOfThisMonth(),
       autoConfirm: rule.autoConfirm,
       merchant: rule.merchant ?? "",
-      gross: rule.grossCents != null ? String(rule.grossCents) : "",
+      gross:
+        rule.grossCents && rule.grossCents > 0 ? String(rule.grossCents) : "",
       discount: rule.discountCents ? String(rule.discountCents) : "",
       categoryId: rule.categoryId ?? "",
       paymentMethodId: rule.paymentMethodId ?? "",
       tagIds: rule.tagIds ?? [],
       description: rule.description ?? "",
-      revenue: rule.revenueCents != null ? String(rule.revenueCents) : "",
+      revenue:
+        rule.revenueCents && rule.revenueCents > 0
+          ? String(rule.revenueCents)
+          : "",
       cost: rule.costCents ? String(rule.costCents) : "",
       cardId: rule.cardId ?? "",
     });
@@ -256,16 +265,16 @@ export function RecurringScreen() {
       form.kind === "SPEND"
         ? {
             merchant: form.merchant.trim() || null,
-            grossCents: Number.parseInt(form.gross || "0", 10) || 0,
-            discountCents: Number.parseInt(form.discount || "0", 10) || 0,
+            grossCents: parseOptionalCents(form.gross),
+            discountCents: parseOptionalCents(form.discount),
             categoryId: form.categoryId || null,
             paymentMethodId: form.paymentMethodId || null,
             tagIds: form.tagIds,
           }
         : {
             description: form.description.trim(),
-            revenueCents: Number.parseInt(form.revenue || "0", 10) || 0,
-            costCents: Number.parseInt(form.cost || "0", 10) || 0,
+            revenueCents: parseOptionalCents(form.revenue),
+            costCents: parseOptionalCents(form.cost),
             cardId: form.cardId || null,
           };
 
@@ -415,8 +424,15 @@ function cadenceSummary(rule: RuleListItem) {
 
 function amountLabel(rule: RuleListItem) {
   if (rule.kind === "SPEND") {
-    const net = (rule.grossCents ?? 0) - (rule.discountCents ?? 0);
+    const grossCents = rule.grossCents;
+    if (grossCents == null || grossCents <= 0) {
+      return "Variable";
+    }
+    const net = grossCents - (rule.discountCents ?? 0);
     return `₩${formatter.format(net)}`;
+  }
+  if ((rule.revenueCents ?? 0) <= 0 && (rule.costCents ?? 0) <= 0) {
+    return "Variable";
   }
   const net = (rule.revenueCents ?? 0) - (rule.costCents ?? 0);
   const sign = net >= 0 ? "+" : "-";
@@ -761,6 +777,7 @@ function RuleForm({
               <input
                 inputMode="numeric"
                 className={inputCls}
+                placeholder={form.autoConfirm ? "Required" : "Optional default"}
                 value={formatDigits(form.gross)}
                 onChange={(e) => set("gross", sanitizeNumber(e.target.value))}
               />
@@ -770,6 +787,7 @@ function RuleForm({
               <input
                 inputMode="numeric"
                 className={inputCls}
+                placeholder="Optional"
                 value={formatDigits(form.discount)}
                 onChange={(e) =>
                   set("discount", sanitizeNumber(e.target.value))
@@ -844,6 +862,9 @@ function RuleForm({
               <input
                 inputMode="numeric"
                 className={inputCls}
+                placeholder={
+                  form.autoConfirm ? "At least one required" : "Optional default"
+                }
                 value={formatDigits(form.revenue)}
                 onChange={(e) => set("revenue", sanitizeNumber(e.target.value))}
               />
@@ -853,6 +874,9 @@ function RuleForm({
               <input
                 inputMode="numeric"
                 className={inputCls}
+                placeholder={
+                  form.autoConfirm ? "At least one required" : "Optional default"
+                }
                 value={formatDigits(form.cost)}
                 onChange={(e) => set("cost", sanitizeNumber(e.target.value))}
               />
