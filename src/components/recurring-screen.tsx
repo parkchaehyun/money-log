@@ -124,22 +124,41 @@ export function RecurringScreen() {
     ]);
   };
 
-  const createRule = trpc.recurring.create.useMutation({
+  // Runs generation immediately after a rule changes, so backfilled/ due-today
+  // entries appear at once instead of waiting for the next daily sync.
+  const syncMutation = trpc.recurring.sync.useMutation({
     onSuccess: async () => {
-      await refresh();
-      setForm(null);
+      await Promise.all([
+        utils.recurring.list.invalidate(),
+        utils.recurring.pendingOccurrences.invalidate(),
+        utils.transactions.list.invalidate(),
+        utils.transactions.summary.invalidate(),
+        utils.income.list.invalidate(),
+        utils.dashboard.invalidate(),
+      ]);
     },
+  });
+
+  const afterSave = async () => {
+    setForm(null);
+    await utils.recurring.list.invalidate();
+    syncMutation.mutate();
+  };
+
+  const createRule = trpc.recurring.create.useMutation({
+    onSuccess: afterSave,
     onError: (e) => setError(e.message || "Unable to save."),
   });
   const updateRule = trpc.recurring.update.useMutation({
-    onSuccess: async () => {
-      await refresh();
-      setForm(null);
-    },
+    onSuccess: afterSave,
     onError: (e) => setError(e.message || "Unable to save."),
   });
   const setActive = trpc.recurring.setActive.useMutation({
-    onSuccess: () => utils.recurring.list.invalidate(),
+    // Sync on resume so a reactivated rule backfills the paused period now.
+    onSuccess: async () => {
+      await utils.recurring.list.invalidate();
+      syncMutation.mutate();
+    },
   });
   const removeRule = trpc.recurring.remove.useMutation({
     onSuccess: refresh,
@@ -571,6 +590,32 @@ function RuleForm({
     form.endDate,
   ]);
 
+  // How many occurrences sync will create immediately on save (start → today).
+  const backfillCount = useMemo(() => {
+    const start = new Date(`${form.startDate}T00:00:00`);
+    if (Number.isNaN(start.getTime())) return 0;
+    const end =
+      form.endMode === "date" ? new Date(`${form.endDate}T00:00:00`) : null;
+    return computeDueDates(
+      {
+        cadence: form.cadence,
+        dayOfMonth: form.cadence === "MONTHLY" ? form.dayOfMonth : null,
+        dayOfWeek: form.cadence === "WEEKLY" ? form.dayOfWeek : null,
+        startDate: start,
+        endDate: end && !Number.isNaN(end.getTime()) ? end : null,
+        lastGeneratedDate: null,
+      },
+      new Date()
+    ).length;
+  }, [
+    form.startDate,
+    form.endMode,
+    form.endDate,
+    form.cadence,
+    form.dayOfMonth,
+    form.dayOfWeek,
+  ]);
+
   const isSpend = form.kind === "SPEND";
   const labelCls = "text-xs uppercase tracking-[0.2em] text-zinc-400";
   const inputCls =
@@ -840,6 +885,20 @@ function RuleForm({
         />
         Add automatically (skip the confirm step) — best for fixed amounts
       </label>
+
+      {backfillCount > 0 ? (
+        <p className="mt-3 text-xs text-zinc-500">
+          On save:{" "}
+          {form.autoConfirm
+            ? `adds ${backfillCount} ${
+                backfillCount === 1 ? "entry" : "entries"
+              } now`
+            : `queues ${backfillCount} ${
+                backfillCount === 1 ? "entry" : "entries"
+              } to confirm`}{" "}
+          (dated up to today).
+        </p>
+      ) : null}
 
       {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
 

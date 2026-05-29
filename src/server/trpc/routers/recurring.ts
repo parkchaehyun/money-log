@@ -91,11 +91,6 @@ const updateInput = ruleObject
   .extend({ id: z.string().cuid() })
   .superRefine(checkRule);
 
-const startOfDay = (d: Date) =>
-  new Date(d.getFullYear(), d.getMonth(), d.getDate());
-const addDays = (d: Date, n: number) =>
-  new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
-
 // Validate that referenced rows belong to the user, and that the rule's tagIds
 // only keep tags the user still owns.
 async function resolveRefs(
@@ -268,15 +263,13 @@ export const recurringRouter = router({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
       const tagIds = await resolveRefs(ctx.db, userId, input);
-      const today = startOfDay(new Date());
-      const start = startOfDay(input.startDate);
-      // Don't backfill occurrences before now; only generate from today on.
-      const lastGeneratedDate = start <= today ? addDays(today, -1) : null;
+      // lastGeneratedDate stays null so the first sync backfills every
+      // occurrence from the start date up to today.
       return ctx.db.recurringRule.create({
         data: {
           userId,
           ...buildRuleData(input, tagIds),
-          lastGeneratedDate,
+          lastGeneratedDate: null,
         },
       });
     }),
