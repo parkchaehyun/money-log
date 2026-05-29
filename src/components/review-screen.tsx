@@ -1,9 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { trpc } from "@/trpc/react";
 import { MultiSelectionSheet } from "@/components/multi-selection-sheet";
+import {
+  writeIncomePrefill,
+  writeSpendPrefill,
+} from "@/lib/entry-prefill";
 
 const formatter = new Intl.NumberFormat("ko-KR");
 
@@ -104,6 +109,7 @@ const defaultToDate = () => formatLocalDate(new Date());
 
 export function ReviewScreen() {
   const utils = trpc.useUtils();
+  const router = useRouter();
   const [mode, setMode] = useState<"spend" | "income">("spend");
   const [fromDate, setFromDate] = useState(defaultFromDate);
   const [toDate, setToDate] = useState(defaultToDate);
@@ -492,6 +498,29 @@ export function ReviewScreen() {
     } catch {
       setIncomeEditError("Unable to update entry.");
     }
+  };
+
+  const handleSpendDuplicate = (entry: typeof spendEntries[number]) => {
+    writeSpendPrefill({
+      amount: String(entry.grossCents),
+      discount: entry.discountCents > 0 ? String(entry.discountCents) : "",
+      merchant: entry.merchant ?? "",
+      notes: entry.notes ?? "",
+      categoryId: entry.categoryId ?? null,
+      paymentMethodId: entry.paymentMethodId ?? null,
+      tagIds: entry.tags.map((t) => t.tagId),
+    });
+    router.push("/");
+  };
+
+  const handleIncomeDuplicate = (entry: typeof incomeEntries[number]) => {
+    writeIncomePrefill({
+      revenue: String(entry.revenueCents),
+      cost: entry.costCents > 0 ? String(entry.costCents) : "",
+      description: entry.description ?? "",
+      cardId: entry.cardId ?? null,
+    });
+    router.push("/income");
   };
 
   const handleSpendDelete = async (entryId: string) => {
@@ -980,6 +1009,16 @@ export function ReviewScreen() {
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
+                              handleSpendDuplicate(item);
+                            }}
+                            className="mr-auto rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
+                          >
+                            Duplicate
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
                               setSpendEditingId(null);
                             }}
                             className="rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
@@ -1180,6 +1219,16 @@ export function ReviewScreen() {
                             </p>
                           ) : null}
                           <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleIncomeDuplicate(item);
+                              }}
+                              className="mr-auto rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
+                            >
+                              Duplicate
+                            </button>
                             <button
                               type="button"
                               onClick={(event) => {

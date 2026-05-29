@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
 
 import { trpc } from "@/trpc/react";
+import { consumeIncomePrefill } from "@/lib/entry-prefill";
 
 import { SelectionSheet } from "./selection-sheet";
 
@@ -128,6 +129,20 @@ export function IncomeScreen() {
       return;
     }
     setPortalTarget(document.body);
+  }, []);
+
+  useEffect(() => {
+    const prefill = consumeIncomePrefill();
+    if (!prefill) {
+      return;
+    }
+    setRevenueInput(prefill.revenue);
+    if (prefill.cost) {
+      setCostEnabled(true);
+      setCostInput(prefill.cost);
+    }
+    setDescription(prefill.description);
+    setCardId(prefill.cardId);
   }, []);
 
   const handleSave = () => {

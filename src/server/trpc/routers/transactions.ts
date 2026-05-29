@@ -297,6 +297,57 @@ export const transactionsRouter = router({
     });
     return { min: result._min.date, max: result._max.date };
   }),
+  // Distinct recent merchants with the fields from their most recent entry,
+  // for Quick Add autocomplete (client filters this list as the user types).
+  recentMerchants: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db.transaction.findMany({
+      where: { userId: ctx.session.user.id, merchant: { not: null } },
+      orderBy: { date: "desc" },
+      take: 400,
+      select: {
+        merchant: true,
+        grossCents: true,
+        discountCents: true,
+        categoryId: true,
+        paymentMethodId: true,
+        tags: { select: { tagId: true } },
+      },
+    });
+
+    const seen = new Map<
+      string,
+      {
+        merchant: string;
+        grossCents: number;
+        discountCents: number;
+        categoryId: string | null;
+        paymentMethodId: string | null;
+        tagIds: string[];
+      }
+    >();
+    for (const row of rows) {
+      const merchant = row.merchant;
+      if (!merchant) {
+        continue;
+      }
+      const key = merchant.toLowerCase();
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.set(key, {
+        merchant,
+        grossCents: row.grossCents,
+        discountCents: row.discountCents,
+        categoryId: row.categoryId,
+        paymentMethodId: row.paymentMethodId,
+        tagIds: row.tags.map((t) => t.tagId),
+      });
+      if (seen.size >= 50) {
+        break;
+      }
+    }
+    return Array.from(seen.values());
+  }),
 });
 
 async function assertOwnedRefs(

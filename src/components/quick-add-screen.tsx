@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { trpc } from "@/trpc/react";
+import { consumeSpendPrefill } from "@/lib/entry-prefill";
 
 import { MultiSelectionSheet } from "./multi-selection-sheet";
 import { PaymentSelectionSheet } from "./payment-selection-sheet";
@@ -100,6 +101,8 @@ export function QuickAddScreen() {
   const [categorySheetOpen, setCategorySheetOpen] = useState(false);
   const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
   const [tagSheetOpen, setTagSheetOpen] = useState(false);
+  const [merchantFocused, setMerchantFocused] = useState(false);
+  const amountRef = useRef<HTMLInputElement>(null);
 
   const {
     data: categoriesData,
@@ -116,6 +119,7 @@ export function QuickAddScreen() {
     isLoading: tagsLoading,
     error: tagsError,
   } = trpc.tags.list.useQuery();
+  const merchantSuggestionsQuery = trpc.transactions.recentMerchants.useQuery();
 
   const grossValue = Number.parseInt(amountInput || "0", 10) || 0;
   const discountValue =
@@ -263,6 +267,26 @@ export function QuickAddScreen() {
   }, []);
 
   useEffect(() => {
+    const prefill = consumeSpendPrefill();
+    if (!prefill) {
+      return;
+    }
+    setAmountInput(prefill.amount);
+    if (prefill.discount) {
+      setDiscountEnabled(true);
+      setDiscountInput(prefill.discount);
+    }
+    setMerchant(prefill.merchant);
+    if (prefill.notes) {
+      setShowNotes(true);
+      setNotes(prefill.notes);
+    }
+    setCategoryId(prefill.categoryId);
+    setPaymentMethodId(prefill.paymentMethodId);
+    setSelectedTagIds(prefill.tagIds);
+  }, []);
+
+  useEffect(() => {
     if (paymentMethodsLoading || hasEnsuredCash || ensureCashMethod.isPending) {
       return;
     }
@@ -319,6 +343,50 @@ export function QuickAddScreen() {
     () => recentTags.filter((item) => !selectedTagIds.includes(item.id)),
     [recentTags, selectedTagIds]
   );
+
+  const merchantSuggestions = useMemo(
+    () =>
+      Array.isArray(merchantSuggestionsQuery.data)
+        ? merchantSuggestionsQuery.data
+        : [],
+    [merchantSuggestionsQuery.data]
+  );
+
+  const merchantMatches = useMemo(() => {
+    const query = merchant.trim().toLowerCase();
+    if (!query) {
+      return [];
+    }
+    return merchantSuggestions
+      .filter((item) => {
+        const name = item.merchant.toLowerCase();
+        return name.includes(query) && name !== query;
+      })
+      .slice(0, 6);
+  }, [merchant, merchantSuggestions]);
+
+  const applyMerchantSuggestion = (
+    suggestion: (typeof merchantSuggestions)[number]
+  ) => {
+    setMerchant(suggestion.merchant);
+    setCategoryId(suggestion.categoryId);
+    setPaymentMethodId(suggestion.paymentMethodId);
+    setSelectedTagIds(suggestion.tagIds);
+    setAmountInput(String(suggestion.grossCents));
+    if (suggestion.discountCents > 0) {
+      setDiscountEnabled(true);
+      setDiscountInput(String(suggestion.discountCents));
+    } else {
+      setDiscountEnabled(false);
+      setDiscountInput("");
+    }
+    setMerchantFocused(false);
+    // Amount varies most, so focus + select it for an immediate retype.
+    requestAnimationFrame(() => {
+      amountRef.current?.focus();
+      amountRef.current?.select();
+    });
+  };
 
   const categoryChoices = useMemo(() => {
     const exclude = new Set(recentCategories.map((item) => item.id));
@@ -527,6 +595,7 @@ export function QuickAddScreen() {
             ₩
           </span>
           <input
+            ref={amountRef}
             inputMode="numeric"
             className="w-full rounded-2xl border border-zinc-200 bg-white py-3 pl-10 pr-4 text-lg font-semibold text-zinc-900 outline-none transition focus:border-zinc-900"
             placeholder="0"
@@ -578,12 +647,58 @@ export function QuickAddScreen() {
         <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
           Merchant
         </label>
-        <input
-          className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
-          placeholder="Store or description"
-          value={merchant}
-          onChange={(event) => setMerchant(event.target.value)}
-        />
+        <div className="relative">
+          <input
+            className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+            placeholder="Store or description"
+            value={merchant}
+            onChange={(event) => setMerchant(event.target.value)}
+            onFocus={() => setMerchantFocused(true)}
+            onBlur={() => setMerchantFocused(false)}
+            autoComplete="off"
+          />
+          {merchantFocused && merchantMatches.length > 0 ? (
+            <ul className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+              {merchantMatches.map((item) => {
+                const category = categories.find(
+                  (c) => c.id === item.categoryId
+                );
+                const payment = paymentMethods.find(
+                  (p) => p.id === item.paymentMethodId
+                );
+                const meta = [category?.name, payment?.name]
+                  .filter(Boolean)
+                  .join(" · ");
+                return (
+                  <li key={item.merchant}>
+                    <button
+                      type="button"
+                      // Prevent the merchant input's blur from firing before
+                      // the click registers.
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => applyMerchantSuggestion(item)}
+                      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition hover:bg-zinc-50"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-zinc-900">
+                          {item.merchant}
+                        </span>
+                        {meta ? (
+                          <span className="block truncate text-xs text-zinc-400">
+                            {meta}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="shrink-0 text-sm font-semibold text-zinc-400">
+                        ₩{formatter.format(item.grossCents)}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </div>
       </div>
 
       <div className="mt-6 grid gap-6 md:grid-cols-2">
