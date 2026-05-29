@@ -20,6 +20,7 @@ const updateInput = z.object({
 export const cardsRouter = router({
   list: protectedProcedure.query(({ ctx }) =>
     ctx.db.card.findMany({
+      where: { userId: ctx.session.user.id },
       orderBy: { name: "asc" },
       include: { paymentMethods: true },
     })
@@ -27,6 +28,7 @@ export const cardsRouter = router({
   create: protectedProcedure.input(createInput).mutation(({ ctx, input }) =>
     ctx.db.card.create({
       data: {
+        userId: ctx.session.user.id,
         name: input.name,
         imageKey: input.imageKey ?? null,
         colorHex: input.colorHex ?? null,
@@ -46,12 +48,16 @@ export const cardsRouter = router({
     };
 
     return ctx.db.card.update({
-      where: { id: input.id },
+      where: { id: input.id, userId: ctx.session.user.id },
       data,
       include: { paymentMethods: true },
     });
   }),
   delete: protectedProcedure
     .input(z.object({ id: z.string().cuid() }))
-    .mutation(({ ctx, input }) => ctx.db.card.delete({ where: { id: input.id } })),
+    .mutation(({ ctx, input }) =>
+      ctx.db.card.delete({
+        where: { id: input.id, userId: ctx.session.user.id },
+      })
+    ),
 });

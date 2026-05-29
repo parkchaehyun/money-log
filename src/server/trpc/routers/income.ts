@@ -1,3 +1,4 @@
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../trpc";
@@ -31,8 +32,8 @@ const listInput = z
 
 type IncomeWhere = Record<string, any>;
 
-const buildWhere = (input?: z.infer<typeof listInput>) => {
-  const where: IncomeWhere = {};
+const buildWhere = (userId: string, input?: z.infer<typeof listInput>) => {
+  const where: IncomeWhere = { userId };
   if (input?.from || input?.to) {
     where.date = {};
     if (input.from) {
@@ -53,7 +54,7 @@ const buildWhere = (input?: z.infer<typeof listInput>) => {
 
 export const incomeRouter = router({
   list: protectedProcedure.input(listInput).query(({ ctx, input }) => {
-    const where = buildWhere(input);
+    const where = buildWhere(ctx.session.user.id, input);
     return ctx.db.incomeEvent.findMany({
       where,
       orderBy: { date: "desc" },
@@ -62,7 +63,7 @@ export const incomeRouter = router({
     });
   }),
   summary: protectedProcedure.input(listInput).query(async ({ ctx, input }) => {
-    const where = buildWhere(input);
+    const where = buildWhere(ctx.session.user.id, input);
     const result = await ctx.db.incomeEvent.aggregate({
       where,
       _sum: {
@@ -83,49 +84,79 @@ export const incomeRouter = router({
       count: result._count._all,
     };
   }),
-  create: protectedProcedure.input(createInput).mutation(({ ctx, input }) =>
-    ctx.db.incomeEvent.create({
-      data: {
-        date: input.date,
-        description: input.description,
-        costCents: input.costCents,
-        revenueCents: input.revenueCents,
-        cardId: input.cardId ?? null,
-      },
-      include: { card: true },
-    })
-  ),
-  update: protectedProcedure.input(updateInput).mutation(({ ctx, input }) => {
-    const data = {
-      ...(input.date !== undefined ? { date: input.date } : {}),
-      ...(input.description !== undefined
-        ? { description: input.description }
-        : {}),
-      ...(input.costCents !== undefined
-        ? { costCents: input.costCents }
-        : {}),
-      ...(input.revenueCents !== undefined
-        ? { revenueCents: input.revenueCents }
-        : {}),
-      ...(input.cardId !== undefined ? { cardId: input.cardId } : {}),
-    };
+  create: protectedProcedure
+    .input(createInput)
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      if (input.cardId) {
+        await assertOwnedCard(ctx.db, input.cardId, userId);
+      }
+      return ctx.db.incomeEvent.create({
+        data: {
+          userId,
+          date: input.date,
+          description: input.description,
+          costCents: input.costCents,
+          revenueCents: input.revenueCents,
+          cardId: input.cardId ?? null,
+        },
+        include: { card: true },
+      });
+    }),
+  update: protectedProcedure
+    .input(updateInput)
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      if (input.cardId) {
+        await assertOwnedCard(ctx.db, input.cardId, userId);
+      }
+      const data = {
+        ...(input.date !== undefined ? { date: input.date } : {}),
+        ...(input.description !== undefined
+          ? { description: input.description }
+          : {}),
+        ...(input.costCents !== undefined
+          ? { costCents: input.costCents }
+          : {}),
+        ...(input.revenueCents !== undefined
+          ? { revenueCents: input.revenueCents }
+          : {}),
+        ...(input.cardId !== undefined ? { cardId: input.cardId } : {}),
+      };
 
-    return ctx.db.incomeEvent.update({
-      where: { id: input.id },
-      data,
-      include: { card: true },
-    });
-  }),
+      return ctx.db.incomeEvent.update({
+        where: { id: input.id, userId },
+        data,
+        include: { card: true },
+      });
+    }),
   delete: protectedProcedure
     .input(z.object({ id: z.string().cuid() }))
     .mutation(({ ctx, input }) =>
-      ctx.db.incomeEvent.delete({ where: { id: input.id } })
+      ctx.db.incomeEvent.delete({
+        where: { id: input.id, userId: ctx.session.user.id },
+      })
     ),
   dateRange: protectedProcedure.query(async ({ ctx }) => {
     const result = await ctx.db.incomeEvent.aggregate({
+      where: { userId: ctx.session.user.id },
       _min: { date: true },
       _max: { date: true },
     });
     return { min: result._min.date, max: result._max.date };
   }),
 });
+
+async function assertOwnedCard(
+  db: typeof import("@/server/db").db,
+  id: string,
+  userId: string
+) {
+  const found = await db.card.findFirst({
+    where: { id, userId },
+    select: { id: true },
+  });
+  if (!found) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Card not found" });
+  }
+}

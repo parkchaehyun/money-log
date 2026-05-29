@@ -13,11 +13,15 @@ const updateInput = z.object({
 
 export const tagsRouter = router({
   list: protectedProcedure.query(({ ctx }) =>
-    ctx.db.tag.findMany({ orderBy: { name: "asc" } })
+    ctx.db.tag.findMany({
+      where: { userId: ctx.session.user.id },
+      orderBy: { name: "asc" },
+    })
   ),
   create: protectedProcedure.input(createInput).mutation(({ ctx, input }) =>
     ctx.db.tag.create({
       data: {
+        userId: ctx.session.user.id,
         name: input.name,
       },
     })
@@ -27,11 +31,15 @@ export const tagsRouter = router({
       ...(input.name !== undefined ? { name: input.name } : {}),
     };
     return ctx.db.tag.update({
-      where: { id: input.id },
+      where: { id: input.id, userId: ctx.session.user.id },
       data,
     });
   }),
   delete: protectedProcedure
     .input(z.object({ id: z.string().cuid() }))
-    .mutation(({ ctx, input }) => ctx.db.tag.delete({ where: { id: input.id } })),
+    .mutation(({ ctx, input }) =>
+      ctx.db.tag.delete({
+        where: { id: input.id, userId: ctx.session.user.id },
+      })
+    ),
 });

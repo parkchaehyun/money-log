@@ -14,6 +14,8 @@ enum PaymentMethodType {
 
 model Transaction {
   id              String         @id @default(cuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   date            DateTime
   merchant        String?
   grossCents      Int
@@ -28,6 +30,7 @@ model Transaction {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
+  @@index([userId])
   @@index([date])
   @@index([categoryId])
   @@index([paymentMethodId])
@@ -35,6 +38,8 @@ model Transaction {
 
 model IncomeEvent {
   id           String     @id @default(cuid())
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   date         DateTime
   description  String
   costCents    Int        @default(0)
@@ -44,24 +49,32 @@ model IncomeEvent {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
+  @@index([userId])
   @@index([date])
   @@index([cardId])
 }
 
 model Category {
   id            String      @id @default(cuid())
-  name          String      @unique
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
   parentId      String?
   parent        Category?   @relation("CategoryHierarchy", fields: [parentId], references: [id])
   children      Category[]  @relation("CategoryHierarchy")
   transactions  Transaction[]
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
 }
 
 model Card {
   id             String          @id @default(cuid())
-  name           String          @unique
+  userId         String
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
   imageKey       String?
   colorHex       String?
   minSpendCents  Int?
@@ -69,10 +82,15 @@ model Card {
   incomeEvents   IncomeEvent[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
 }
 
 model PaymentMethod {
   id           String            @id @default(cuid())
+  userId       String
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   name         String
   type         PaymentMethodType @default(CARD)
   cardId       String?
@@ -81,14 +99,20 @@ model PaymentMethod {
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 
+  @@index([userId])
   @@index([type])
   @@index([cardId])
 }
 
 model Tag {
-  id    String            @id @default(cuid())
-  name  String            @unique
-  tags  TransactionTag[]
+  id     String            @id @default(cuid())
+  userId String
+  user   User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String
+  tags   TransactionTag[]
+
+  @@unique([userId, name])
+  @@index([userId])
 }
 
 model TransactionTag {
@@ -111,6 +135,12 @@ model User {
   passwordHash  String?
   accounts      Account[]
   sessions      Session[]
+  transactions   Transaction[]
+  incomeEvents   IncomeEvent[]
+  categories     Category[]
+  cards          Card[]
+  paymentMethods PaymentMethod[]
+  tags           Tag[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }

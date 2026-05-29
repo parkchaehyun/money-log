@@ -1,4 +1,5 @@
 import { PaymentMethodType } from "@prisma/client";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../trpc";
@@ -19,36 +20,66 @@ const updateInput = z.object({
 export const paymentMethodsRouter = router({
   list: protectedProcedure.query(({ ctx }) =>
     ctx.db.paymentMethod.findMany({
+      where: { userId: ctx.session.user.id },
       orderBy: { name: "asc" },
       include: { card: true },
     })
   ),
-  create: protectedProcedure.input(createInput).mutation(({ ctx, input }) =>
-    ctx.db.paymentMethod.create({
-      data: {
-        name: input.name,
-        type: input.type,
-        cardId: input.cardId ?? null,
-      },
-      include: { card: true },
-    })
-  ),
-  update: protectedProcedure.input(updateInput).mutation(({ ctx, input }) => {
-    const data = {
-      ...(input.name !== undefined ? { name: input.name } : {}),
-      ...(input.type !== undefined ? { type: input.type } : {}),
-      ...(input.cardId !== undefined ? { cardId: input.cardId } : {}),
-    };
+  create: protectedProcedure
+    .input(createInput)
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      if (input.cardId) {
+        await assertOwnedCard(ctx.db, input.cardId, userId);
+      }
+      return ctx.db.paymentMethod.create({
+        data: {
+          userId,
+          name: input.name,
+          type: input.type,
+          cardId: input.cardId ?? null,
+        },
+        include: { card: true },
+      });
+    }),
+  update: protectedProcedure
+    .input(updateInput)
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      if (input.cardId) {
+        await assertOwnedCard(ctx.db, input.cardId, userId);
+      }
+      const data = {
+        ...(input.name !== undefined ? { name: input.name } : {}),
+        ...(input.type !== undefined ? { type: input.type } : {}),
+        ...(input.cardId !== undefined ? { cardId: input.cardId } : {}),
+      };
 
-    return ctx.db.paymentMethod.update({
-      where: { id: input.id },
-      data,
-      include: { card: true },
-    });
-  }),
+      return ctx.db.paymentMethod.update({
+        where: { id: input.id, userId },
+        data,
+        include: { card: true },
+      });
+    }),
   delete: protectedProcedure
     .input(z.object({ id: z.string().cuid() }))
     .mutation(({ ctx, input }) =>
-      ctx.db.paymentMethod.delete({ where: { id: input.id } })
+      ctx.db.paymentMethod.delete({
+        where: { id: input.id, userId: ctx.session.user.id },
+      })
     ),
 });
+
+async function assertOwnedCard(
+  db: typeof import("@/server/db").db,
+  id: string,
+  userId: string
+) {
+  const found = await db.card.findFirst({
+    where: { id, userId },
+    select: { id: true },
+  });
+  if (!found) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Card not found" });
+  }
+}

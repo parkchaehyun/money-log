@@ -73,6 +73,12 @@ Postgres
 - Card, PaymentMethod (card-linked or cash)
 - User (email + password hash for login)
 
+Every data entity (transactions, income, categories, tags, cards, payment
+methods) is owned by a `User` via a required `userId`. All queries and
+mutations are scoped to the signed-in user, so users cannot see or modify each
+other's data, and category/card/tag names are unique **per user** rather than
+globally. Adding a second login therefore creates a fully isolated account.
+
 ## App Pages / UX Flow
 - Spend: quick add with optional discount, tags, notes.
 - Income: revenue + cost, optional card.
@@ -159,18 +165,31 @@ docker compose --env-file .env.production -f docker-compose.prod.yml exec app np
 - Dev: `npx prisma migrate dev --name <name>`
 - Prod: `npx prisma migrate deploy`
 
-## Auth Bootstrap (First User)
-Generate hash:
+## Adding Users (Manual)
+There is no signup UI. Users are created directly against the running app
+container. The same steps apply to the first user and every additional one —
+each new user gets a fully isolated, empty account.
+
+Generate a password hash:
 ```bash
 docker compose --env-file .env.production -f docker-compose.prod.yml exec app \
   node -e "const bcrypt=require('bcryptjs'); console.log(bcrypt.hashSync('YOUR_PASSWORD',12));"
 ```
 
-Create user:
+Create the user:
 ```bash
 docker compose --env-file .env.production -f docker-compose.prod.yml exec app \
   node -e "const {PrismaClient}=require('@prisma/client'); const db=new PrismaClient(); (async()=>{ await db.user.create({data:{email:'you@example.com', passwordHash:'<HASH>'}}); await db.\$disconnect(); })().catch(console.error);"
 ```
+
+If the app is behind Cloudflare Access, also add the new email to the Access
+policy — otherwise they can't reach the login page.
+
+> The `userId` migration backfills all pre-existing data to the **oldest**
+> user. Make sure that user exists before running `prisma migrate deploy` on a
+> database that already has data; the migration aborts with a clear error
+> otherwise. Seed data with `node scripts/seed-2025.mjs <file> --user <email>`
+> (defaults to the oldest user when `--user` is omitted).
 
 ## License
 The MIT License (MIT)

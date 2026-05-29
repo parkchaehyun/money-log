@@ -50,8 +50,8 @@ type ListInput = z.infer<typeof listInput>;
 
 type TransactionWhere = Record<string, any>;
 
-const buildWhere = (input?: ListInput) => {
-  const where: TransactionWhere = {};
+const buildWhere = (userId: string, input?: ListInput) => {
+  const where: TransactionWhere = { userId };
   const andFilters: TransactionWhere[] = [];
 
   if (input?.from || input?.to) {
@@ -128,7 +128,7 @@ const buildWhere = (input?: ListInput) => {
 
 export const transactionsRouter = router({
   list: protectedProcedure.input(listInput).query(async ({ ctx, input }) => {
-    const where = buildWhere(input);
+    const where = buildWhere(ctx.session.user.id, input);
     return ctx.db.transaction.findMany({
       where,
       orderBy: { date: "desc" },
@@ -145,7 +145,7 @@ export const transactionsRouter = router({
     });
   }),
   summary: protectedProcedure.input(listInput).query(async ({ ctx, input }) => {
-    const where = buildWhere(input);
+    const where = buildWhere(ctx.session.user.id, input);
     const result = await ctx.db.transaction.aggregate({
       where,
       _sum: {
@@ -168,11 +168,19 @@ export const transactionsRouter = router({
   create: protectedProcedure
     .input(createInput)
     .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      await assertOwnedRefs(ctx.db, userId, {
+        categoryId: input.categoryId ?? null,
+        paymentMethodId: input.paymentMethodId ?? null,
+        tagIds: input.tagIds,
+      });
+
       const netCents = input.grossCents - input.discountCents;
       const tagIds = input.tagIds ?? [];
 
       return ctx.db.transaction.create({
         data: {
+          userId,
           date: input.date,
           merchant: input.merchant ?? null,
           grossCents: input.grossCents,
@@ -203,8 +211,9 @@ export const transactionsRouter = router({
   update: protectedProcedure
     .input(updateInput)
     .mutation(async ({ ctx, input }) => {
-      const existing = await ctx.db.transaction.findUnique({
-        where: { id: input.id },
+      const userId = ctx.session.user.id;
+      const existing = await ctx.db.transaction.findFirst({
+        where: { id: input.id, userId },
       });
 
       if (!existing) {
@@ -213,6 +222,12 @@ export const transactionsRouter = router({
           message: "Transaction not found",
         });
       }
+
+      await assertOwnedRefs(ctx.db, userId, {
+        categoryId: input.categoryId,
+        paymentMethodId: input.paymentMethodId,
+        tagIds: input.tagIds,
+      });
 
       const grossCents = input.grossCents ?? existing.grossCents;
       const discountCents = input.discountCents ?? existing.discountCents;
@@ -254,7 +269,7 @@ export const transactionsRouter = router({
       };
 
       return ctx.db.transaction.update({
-        where: { id: input.id },
+        where: { id: input.id, userId },
         data,
         include: {
           category: true,
@@ -270,13 +285,58 @@ export const transactionsRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string().cuid() }))
     .mutation(({ ctx, input }) =>
-      ctx.db.transaction.delete({ where: { id: input.id } })
+      ctx.db.transaction.delete({
+        where: { id: input.id, userId: ctx.session.user.id },
+      })
     ),
   dateRange: protectedProcedure.query(async ({ ctx }) => {
     const result = await ctx.db.transaction.aggregate({
+      where: { userId: ctx.session.user.id },
       _min: { date: true },
       _max: { date: true },
     });
     return { min: result._min.date, max: result._max.date };
   }),
 });
+
+async function assertOwnedRefs(
+  db: typeof import("@/server/db").db,
+  userId: string,
+  refs: {
+    categoryId?: string | null;
+    paymentMethodId?: string | null;
+    tagIds?: string[];
+  }
+) {
+  if (refs.categoryId) {
+    const found = await db.category.findFirst({
+      where: { id: refs.categoryId, userId },
+      select: { id: true },
+    });
+    if (!found) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Category not found" });
+    }
+  }
+
+  if (refs.paymentMethodId) {
+    const found = await db.paymentMethod.findFirst({
+      where: { id: refs.paymentMethodId, userId },
+      select: { id: true },
+    });
+    if (!found) {
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: "Payment method not found",
+      });
+    }
+  }
+
+  if (refs.tagIds?.length) {
+    const count = await db.tag.count({
+      where: { id: { in: refs.tagIds }, userId },
+    });
+    if (count !== new Set(refs.tagIds).size) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Tag not found" });
+    }
+  }
+}

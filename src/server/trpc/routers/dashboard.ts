@@ -36,11 +36,13 @@ type SpendFilters = z.infer<typeof spendFilterInput>;
 type TransactionWhere = Record<string, unknown>;
 
 const buildSpendWhere = (
+  userId: string,
   filters: SpendFilters,
   start: Date,
   end: Date
 ): TransactionWhere => {
   const where: TransactionWhere = {
+    userId,
     date: {
       gte: start,
       lte: end,
@@ -89,22 +91,27 @@ const buildSpendWhere = (
 
 export const dashboardRouter = router({
   years: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
     const nowYear = new Date().getFullYear();
     const [earliestTx, latestTx, earliestIncome, latestIncome] =
       await Promise.all([
         ctx.db.transaction.findFirst({
+          where: { userId },
           select: { date: true },
           orderBy: { date: "asc" },
         }),
         ctx.db.transaction.findFirst({
+          where: { userId },
           select: { date: true },
           orderBy: { date: "desc" },
         }),
         ctx.db.incomeEvent.findFirst({
+          where: { userId },
           select: { date: true },
           orderBy: { date: "asc" },
         }),
         ctx.db.incomeEvent.findFirst({
+          where: { userId },
           select: { date: true },
           orderBy: { date: "desc" },
         }),
@@ -131,8 +138,9 @@ export const dashboardRouter = router({
   yearOverview: protectedProcedure
     .input(yearInput)
     .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
       const { start, end } = buildYearRange(input.year);
-      const spendWhere = buildSpendWhere(input.filters, start, end);
+      const spendWhere = buildSpendWhere(userId, input.filters, start, end);
       const [spendEntries, incomeEntries]: [
         Array<{ date: Date; netCents: number }>,
         Array<{ date: Date; revenueCents: number; costCents: number }>
@@ -142,7 +150,7 @@ export const dashboardRouter = router({
           select: { date: true, netCents: true },
         }),
         ctx.db.incomeEvent.findMany({
-          where: { date: { gte: start, lte: end } },
+          where: { userId, date: { gte: start, lte: end } },
           select: { date: true, revenueCents: true, costCents: true },
         }),
       ]);
@@ -184,7 +192,12 @@ export const dashboardRouter = router({
     .input(monthInput)
     .query(async ({ ctx, input }) => {
       const { start, end } = buildMonthRange(input.year, input.month);
-      const spendWhere = buildSpendWhere(input.filters, start, end);
+      const spendWhere = buildSpendWhere(
+        ctx.session.user.id,
+        input.filters,
+        start,
+        end
+      );
       const entries: Array<{
         netCents: number;
         categoryId: string | null;
@@ -225,7 +238,12 @@ export const dashboardRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const { start, end } = buildMonthRange(input.year, input.month);
-      const spendWhere = buildSpendWhere(input.filters, start, end);
+      const spendWhere = buildSpendWhere(
+        ctx.session.user.id,
+        input.filters,
+        start,
+        end
+      );
       const entries: Array<{
         grossCents: number;
         discountCents: number;
