@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import { dedupeByKey } from "@/lib/dedupe";
 import { protectedProcedure, router } from "../trpc";
 
 const createInput = z.object({
@@ -144,6 +145,24 @@ export const incomeRouter = router({
       _max: { date: true },
     });
     return { min: result._min.date, max: result._max.date };
+  }),
+  // Distinct income descriptions (most recent first) with the fields from
+  // their latest entry, for Income autocomplete. The client filters this list
+  // with jamo-aware matching.
+  sourceOptions: protectedProcedure.query(async ({ ctx }) => {
+    const rows = await ctx.db.incomeEvent.findMany({
+      where: { userId: ctx.session.user.id },
+      orderBy: { date: "desc" },
+      take: 3000,
+      select: {
+        description: true,
+        revenueCents: true,
+        costCents: true,
+        cardId: true,
+      },
+    });
+
+    return dedupeByKey(rows, (row) => row.description, 1000);
   }),
 });
 

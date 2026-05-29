@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import { dedupeByKey } from "@/lib/dedupe";
 import { protectedProcedure, router } from "../trpc";
 
 const createInput = z
@@ -297,13 +298,15 @@ export const transactionsRouter = router({
     });
     return { min: result._min.date, max: result._max.date };
   }),
-  // Distinct recent merchants with the fields from their most recent entry,
-  // for Quick Add autocomplete (client filters this list as the user types).
-  recentMerchants: protectedProcedure.query(async ({ ctx }) => {
+  // Distinct merchants (most recent first) with the fields from their latest
+  // entry, for Quick Add autocomplete. The client filters this list with
+  // jamo-aware matching, so we return the full distinct set rather than
+  // searching server-side. Scan is capped to the recent window.
+  merchantOptions: protectedProcedure.query(async ({ ctx }) => {
     const rows = await ctx.db.transaction.findMany({
       where: { userId: ctx.session.user.id, merchant: { not: null } },
       orderBy: { date: "desc" },
-      take: 400,
+      take: 3000,
       select: {
         merchant: true,
         grossCents: true,
@@ -314,39 +317,14 @@ export const transactionsRouter = router({
       },
     });
 
-    const seen = new Map<
-      string,
-      {
-        merchant: string;
-        grossCents: number;
-        discountCents: number;
-        categoryId: string | null;
-        paymentMethodId: string | null;
-        tagIds: string[];
-      }
-    >();
-    for (const row of rows) {
-      const merchant = row.merchant;
-      if (!merchant) {
-        continue;
-      }
-      const key = merchant.toLowerCase();
-      if (seen.has(key)) {
-        continue;
-      }
-      seen.set(key, {
-        merchant,
-        grossCents: row.grossCents,
-        discountCents: row.discountCents,
-        categoryId: row.categoryId,
-        paymentMethodId: row.paymentMethodId,
-        tagIds: row.tags.map((t) => t.tagId),
-      });
-      if (seen.size >= 50) {
-        break;
-      }
-    }
-    return Array.from(seen.values());
+    return dedupeByKey(rows, (row) => row.merchant ?? "", 1000).map((row) => ({
+      merchant: row.merchant as string,
+      grossCents: row.grossCents,
+      discountCents: row.discountCents,
+      categoryId: row.categoryId,
+      paymentMethodId: row.paymentMethodId,
+      tagIds: row.tags.map((t) => t.tagId),
+    }));
   }),
 });
 

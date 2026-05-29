@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { trpc } from "@/trpc/react";
 import { consumeSpendPrefill } from "@/lib/entry-prefill";
 
+import { AutocompleteField } from "./autocomplete-field";
 import { MultiSelectionSheet } from "./multi-selection-sheet";
 import { PaymentSelectionSheet } from "./payment-selection-sheet";
 import { SelectionSheet } from "./selection-sheet";
@@ -101,7 +102,6 @@ export function QuickAddScreen() {
   const [categorySheetOpen, setCategorySheetOpen] = useState(false);
   const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
   const [tagSheetOpen, setTagSheetOpen] = useState(false);
-  const [merchantFocused, setMerchantFocused] = useState(false);
   const amountRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -119,7 +119,10 @@ export function QuickAddScreen() {
     isLoading: tagsLoading,
     error: tagsError,
   } = trpc.tags.list.useQuery();
-  const merchantSuggestionsQuery = trpc.transactions.recentMerchants.useQuery();
+  const merchantOptionsQuery = trpc.transactions.merchantOptions.useQuery(
+    undefined,
+    { staleTime: 5 * 60 * 1000 }
+  );
 
   const grossValue = Number.parseInt(amountInput || "0", 10) || 0;
   const discountValue =
@@ -172,6 +175,7 @@ export function QuickAddScreen() {
       }
       await utils.transactions.list.invalidate();
       await utils.transactions.summary.invalidate();
+      await utils.transactions.merchantOptions.invalidate();
     },
     onError: (error) => {
       setStatusTone("error");
@@ -346,24 +350,11 @@ export function QuickAddScreen() {
 
   const merchantSuggestions = useMemo(
     () =>
-      Array.isArray(merchantSuggestionsQuery.data)
-        ? merchantSuggestionsQuery.data
+      Array.isArray(merchantOptionsQuery.data)
+        ? merchantOptionsQuery.data
         : [],
-    [merchantSuggestionsQuery.data]
+    [merchantOptionsQuery.data]
   );
-
-  const merchantMatches = useMemo(() => {
-    const query = merchant.trim().toLowerCase();
-    if (!query) {
-      return [];
-    }
-    return merchantSuggestions
-      .filter((item) => {
-        const name = item.merchant.toLowerCase();
-        return name.includes(query) && name !== query;
-      })
-      .slice(0, 6);
-  }, [merchant, merchantSuggestions]);
 
   const applyMerchantSuggestion = (
     suggestion: (typeof merchantSuggestions)[number]
@@ -380,7 +371,6 @@ export function QuickAddScreen() {
       setDiscountEnabled(false);
       setDiscountInput("");
     }
-    setMerchantFocused(false);
     // Amount varies most, so focus + select it for an immediate retype.
     requestAnimationFrame(() => {
       amountRef.current?.focus();
@@ -644,61 +634,27 @@ export function QuickAddScreen() {
       </div>
 
       <div className="mt-6">
-        <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-          Merchant
-        </label>
-        <div className="relative">
-          <input
-            className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
-            placeholder="Store or description"
-            value={merchant}
-            onChange={(event) => setMerchant(event.target.value)}
-            onFocus={() => setMerchantFocused(true)}
-            onBlur={() => setMerchantFocused(false)}
-            autoComplete="off"
-          />
-          {merchantFocused && merchantMatches.length > 0 ? (
-            <ul className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
-              {merchantMatches.map((item) => {
-                const category = categories.find(
-                  (c) => c.id === item.categoryId
-                );
-                const payment = paymentMethods.find(
-                  (p) => p.id === item.paymentMethodId
-                );
-                const meta = [category?.name, payment?.name]
-                  .filter(Boolean)
-                  .join(" · ");
-                return (
-                  <li key={item.merchant}>
-                    <button
-                      type="button"
-                      // Prevent the merchant input's blur from firing before
-                      // the click registers.
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => applyMerchantSuggestion(item)}
-                      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition hover:bg-zinc-50"
-                    >
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium text-zinc-900">
-                          {item.merchant}
-                        </span>
-                        {meta ? (
-                          <span className="block truncate text-xs text-zinc-400">
-                            {meta}
-                          </span>
-                        ) : null}
-                      </span>
-                      <span className="shrink-0 text-sm font-semibold text-zinc-400">
-                        ₩{formatter.format(item.grossCents)}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
-        </div>
+        <AutocompleteField
+          label="Merchant"
+          placeholder="Store or description"
+          value={merchant}
+          onChange={setMerchant}
+          items={merchantSuggestions}
+          onSelect={applyMerchantSuggestion}
+          getKey={(item) => item.merchant}
+          getPrimary={(item) => item.merchant}
+          getSecondary={(item) => {
+            const category = categories.find((c) => c.id === item.categoryId);
+            const payment = paymentMethods.find(
+              (p) => p.id === item.paymentMethodId
+            );
+            return (
+              [category?.name, payment?.name].filter(Boolean).join(" · ") ||
+              null
+            );
+          }}
+          getTrailing={(item) => `₩${formatter.format(item.grossCents)}`}
+        />
       </div>
 
       <div className="mt-6 grid gap-6 md:grid-cols-2">

@@ -1,11 +1,12 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { trpc } from "@/trpc/react";
 import { consumeIncomePrefill } from "@/lib/entry-prefill";
 
+import { AutocompleteField } from "./autocomplete-field";
 import { SelectionSheet } from "./selection-sheet";
 
 const formatter = new Intl.NumberFormat("ko-KR");
@@ -49,6 +50,7 @@ export function IncomeScreen() {
   const [descriptionTouched, setDescriptionTouched] = useState(false);
   const [cardId, setCardId] = useState<string | null>(null);
   const [cardSheetOpen, setCardSheetOpen] = useState(false);
+  const revenueRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [statusTone, setStatusTone] = useState<"info" | "error">("info");
   const [toast, setToast] = useState<{ id: number; message: string } | null>(
@@ -65,6 +67,34 @@ export function IncomeScreen() {
     () => cards.find((item) => item.id === cardId) ?? null,
     [cardId, cards]
   );
+
+  const sourceOptionsQuery = trpc.income.sourceOptions.useQuery(undefined, {
+    staleTime: 5 * 60 * 1000,
+  });
+  const sourceSuggestions = useMemo(
+    () => (Array.isArray(sourceOptionsQuery.data) ? sourceOptionsQuery.data : []),
+    [sourceOptionsQuery.data]
+  );
+
+  const applySourceSuggestion = (
+    suggestion: (typeof sourceSuggestions)[number]
+  ) => {
+    setDescription(suggestion.description);
+    setCardId(suggestion.cardId);
+    setRevenueInput(String(suggestion.revenueCents));
+    if (suggestion.costCents > 0) {
+      setCostEnabled(true);
+      setCostInput(String(suggestion.costCents));
+    } else {
+      setCostEnabled(false);
+      setCostInput("");
+    }
+    // Amount varies most, so focus + select revenue for an immediate retype.
+    requestAnimationFrame(() => {
+      revenueRef.current?.focus();
+      revenueRef.current?.select();
+    });
+  };
 
   const revenueValue = Number.parseInt(revenueInput || "0", 10) || 0;
   const costValue =
@@ -95,6 +125,7 @@ export function IncomeScreen() {
       setDescription("");
       setDescriptionTouched(false);
       await utils.income.list.invalidate();
+      await utils.income.sourceOptions.invalidate();
     },
     onError: (error) => {
       setStatusTone("error");
@@ -282,6 +313,7 @@ export function IncomeScreen() {
             ₩
           </span>
           <input
+            ref={revenueRef}
             inputMode="numeric"
             className="w-full rounded-2xl border border-zinc-200 bg-white py-3 pl-10 pr-4 text-lg font-semibold text-zinc-900 outline-none transition focus:border-zinc-900"
             placeholder="0"
@@ -323,15 +355,25 @@ export function IncomeScreen() {
       </div>
 
       <div className="mt-6">
-        <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-          Description
-        </label>
-        <input
-          className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+        <AutocompleteField
+          label="Description"
           placeholder="Cashback, interest, rewards"
           value={description}
-          onChange={(event) => setDescription(event.target.value)}
+          onChange={setDescription}
+          items={sourceSuggestions}
+          onSelect={applySourceSuggestion}
           onBlur={() => setDescriptionTouched(true)}
+          getKey={(item) => item.description}
+          getPrimary={(item) => item.description}
+          getSecondary={(item) => {
+            const card = cards.find((c) => c.id === item.cardId);
+            return card?.name ?? null;
+          }}
+          getTrailing={(item) => {
+            const net = item.revenueCents - item.costCents;
+            const sign = net >= 0 ? "+" : "-";
+            return `${sign}₩${formatter.format(Math.abs(net))}`;
+          }}
         />
         {descriptionError ? (
           <p className="mt-2 text-sm text-red-600">{descriptionError}</p>

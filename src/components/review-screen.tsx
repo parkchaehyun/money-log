@@ -288,6 +288,7 @@ export function ReviewScreen() {
     onSuccess: async () => {
       await utils.transactions.list.invalidate();
       await utils.transactions.summary.invalidate();
+      await utils.transactions.merchantOptions.invalidate();
       setSpendEditingId(null);
     },
   });
@@ -300,12 +301,14 @@ export function ReviewScreen() {
     onSuccess: async () => {
       await utils.transactions.list.invalidate();
       await utils.transactions.summary.invalidate();
+      await utils.transactions.merchantOptions.invalidate();
     },
   });
 
   const updateIncome = trpc.income.update.useMutation({
     onSuccess: async () => {
       await utils.income.list.invalidate();
+      await utils.income.sourceOptions.invalidate();
       setIncomeEditingId(null);
     },
   });
@@ -313,6 +316,7 @@ export function ReviewScreen() {
   const deleteIncome = trpc.income.delete.useMutation({
     onSuccess: async () => {
       await utils.income.list.invalidate();
+      await utils.income.sourceOptions.invalidate();
     },
   });
 
