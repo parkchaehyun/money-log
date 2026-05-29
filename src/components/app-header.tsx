@@ -58,7 +58,7 @@ export function AppHeader() {
 
   return (
     <header className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-zinc-200 bg-white/90 px-5 py-4 shadow-sm backdrop-blur">
-      <div className="flex items-center">
+      <div className="flex items-center gap-3">
         <div>
           <p className="text-sm font-semibold tracking-tight text-zinc-900">
             Money Log
@@ -70,6 +70,32 @@ export function AppHeader() {
             <span style={{ color: "#52525b" }}>{effectiveLabel}</span>
           </p>
         </div>
+        <Link
+          href="/recurring"
+          aria-label="Recurring"
+          title="Recurring"
+          className={`flex h-9 w-9 items-center justify-center rounded-full border transition ${
+            pathname === "/recurring"
+              ? "border-zinc-900 bg-zinc-900 text-white"
+              : "border-zinc-200 text-zinc-500 hover:text-zinc-900"
+          }`}
+        >
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-4 w-4"
+          >
+            <path d="m17 2 4 4-4 4" />
+            <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+            <path d="m7 22-4-4 4-4" />
+            <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+          </svg>
+        </Link>
       </div>
 
       <nav className="grid w-full grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,1.35fr)] gap-1 rounded-2xl bg-zinc-100 p-1 text-xs sm:flex sm:w-auto sm:gap-2 sm:rounded-full sm:text-sm">

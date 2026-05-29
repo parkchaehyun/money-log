@@ -5,6 +5,7 @@
 
 const SPEND_KEY = "money-log:prefill:spend";
 const INCOME_KEY = "money-log:prefill:income";
+const RECURRING_KEY = "money-log:prefill:recurring";
 
 export type SpendPrefill = {
   amount: string; // gross, in cents, as a digit string
@@ -21,6 +22,23 @@ export type IncomePrefill = {
   cost: string; // in cents; "" when none
   description: string;
   cardId: string | null;
+};
+
+// Used by Review's "Repeat…" action to open the recurring-rule form prefilled
+// from an existing entry.
+export type RecurringPrefill = {
+  kind: "SPEND" | "INCOME";
+  dayOfMonth: number; // from the entry's date, as a sensible monthly default
+  merchant?: string;
+  gross?: string;
+  discount?: string;
+  categoryId?: string | null;
+  paymentMethodId?: string | null;
+  tagIds?: string[];
+  description?: string;
+  revenue?: string;
+  cost?: string;
+  cardId?: string | null;
 };
 
 function write<T>(key: string, value: T) {
@@ -55,3 +73,7 @@ export const consumeSpendPrefill = () => consume<SpendPrefill>(SPEND_KEY);
 export const writeIncomePrefill = (value: IncomePrefill) =>
   write(INCOME_KEY, value);
 export const consumeIncomePrefill = () => consume<IncomePrefill>(INCOME_KEY);
+export const writeRecurringPrefill = (value: RecurringPrefill) =>
+  write(RECURRING_KEY, value);
+export const consumeRecurringPrefill = () =>
+  consume<RecurringPrefill>(RECURRING_KEY);

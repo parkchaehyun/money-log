@@ -7,6 +7,7 @@ import { trpc } from "@/trpc/react";
 import { MultiSelectionSheet } from "@/components/multi-selection-sheet";
 import {
   writeIncomePrefill,
+  writeRecurringPrefill,
   writeSpendPrefill,
 } from "@/lib/entry-prefill";
 
@@ -527,6 +528,32 @@ export function ReviewScreen() {
     router.push("/income");
   };
 
+  const handleSpendRepeat = (entry: typeof spendEntries[number]) => {
+    writeRecurringPrefill({
+      kind: "SPEND",
+      dayOfMonth: entry.date.getDate(),
+      merchant: entry.merchant ?? "",
+      gross: String(entry.grossCents),
+      discount: entry.discountCents > 0 ? String(entry.discountCents) : "",
+      categoryId: entry.categoryId ?? null,
+      paymentMethodId: entry.paymentMethodId ?? null,
+      tagIds: entry.tags.map((t) => t.tagId),
+    });
+    router.push("/recurring");
+  };
+
+  const handleIncomeRepeat = (entry: typeof incomeEntries[number]) => {
+    writeRecurringPrefill({
+      kind: "INCOME",
+      dayOfMonth: entry.date.getDate(),
+      description: entry.description ?? "",
+      revenue: String(entry.revenueCents),
+      cost: entry.costCents > 0 ? String(entry.costCents) : "",
+      cardId: entry.cardId ?? null,
+    });
+    router.push("/recurring");
+  };
+
   const handleSpendDelete = async (entryId: string) => {
     if (typeof window !== "undefined") {
       const confirmed = window.confirm("Delete this spend entry?");
@@ -866,9 +893,17 @@ export function ReviewScreen() {
                   >
                     <div className="flex flex-wrap items-center justify-between gap-4">
                       <div>
-                        <p className="text-sm font-semibold text-zinc-900">
-                          {item.merchant || "Untitled purchase"}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-semibold text-zinc-900">
+                            {item.merchant || "Untitled purchase"}
+                          </p>
+                          {item.recurringRuleId ? (
+                            <RecurringBadge
+                              ruleId={item.recurringRuleId}
+                              router={router}
+                            />
+                          ) : null}
+                        </div>
                         <p className="text-xs text-zinc-500">
                           {formatShortDate(item.date)} ·{" "}
                           {item.category?.name ?? "Uncategorized"} ·{" "}
@@ -1015,9 +1050,19 @@ export function ReviewScreen() {
                               event.stopPropagation();
                               handleSpendDuplicate(item);
                             }}
-                            className="mr-auto rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
+                            className="rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
                           >
                             Duplicate
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleSpendRepeat(item);
+                            }}
+                            className="mr-auto rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
+                          >
+                            Repeat…
                           </button>
                           <button
                             type="button"
@@ -1099,9 +1144,17 @@ export function ReviewScreen() {
                     >
                       <div className="flex flex-wrap items-center justify-between gap-4">
                         <div>
-                          <p className="text-sm font-semibold text-zinc-900">
-                            {item.description}
-                          </p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-sm font-semibold text-zinc-900">
+                              {item.description}
+                            </p>
+                            {item.recurringRuleId ? (
+                              <RecurringBadge
+                                ruleId={item.recurringRuleId}
+                                router={router}
+                              />
+                            ) : null}
+                          </div>
                           <p className="text-xs text-zinc-500">{metaLabel}</p>
                         </div>
                         <div className="text-right">
@@ -1229,9 +1282,19 @@ export function ReviewScreen() {
                                 event.stopPropagation();
                                 handleIncomeDuplicate(item);
                               }}
-                              className="mr-auto rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
+                              className="rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
                             >
                               Duplicate
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleIncomeRepeat(item);
+                              }}
+                              className="mr-auto rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
+                            >
+                              Repeat…
                             </button>
                             <button
                               type="button"
@@ -1334,5 +1397,42 @@ export function ReviewScreen() {
         createLabel="Add new tag"
       />
     </section>
+  );
+}
+
+function RecurringBadge({
+  ruleId,
+  router,
+}: {
+  ruleId: string;
+  router: ReturnType<typeof useRouter>;
+}) {
+  return (
+    <button
+      type="button"
+      title="From a recurring rule — view it"
+      aria-label="View recurring rule"
+      onClick={(event) => {
+        event.stopPropagation();
+        router.push(`/recurring?rule=${ruleId}`);
+      }}
+      className="text-zinc-400 transition hover:text-zinc-900"
+    >
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="h-3.5 w-3.5"
+      >
+        <path d="m17 2 4 4-4 4" />
+        <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+        <path d="m7 22-4-4 4-4" />
+        <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+      </svg>
+    </button>
   );
 }

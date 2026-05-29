@@ -12,6 +12,16 @@ enum PaymentMethodType {
   CASH_TRANSFER
 }
 
+enum RecurringKind {
+  SPEND
+  INCOME
+}
+
+enum RecurringCadence {
+  WEEKLY
+  MONTHLY
+}
+
 model Transaction {
   id              String         @id @default(cuid())
   userId          String
@@ -27,6 +37,8 @@ model Transaction {
   paymentMethodId String?
   paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
   tags            TransactionTag[]
+  recurringRuleId String?
+  recurringRule   RecurringRule? @relation(fields: [recurringRuleId], references: [id], onDelete: SetNull)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -34,6 +46,7 @@ model Transaction {
   @@index([date])
   @@index([categoryId])
   @@index([paymentMethodId])
+  @@index([recurringRuleId])
 }
 
 model IncomeEvent {
@@ -46,12 +59,15 @@ model IncomeEvent {
   revenueCents Int        @default(0)
   cardId       String?
   card         Card?      @relation(fields: [cardId], references: [id])
+  recurringRuleId String?
+  recurringRule   RecurringRule? @relation(fields: [recurringRuleId], references: [id], onDelete: SetNull)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
   @@index([userId])
   @@index([date])
   @@index([cardId])
+  @@index([recurringRuleId])
 }
 
 model Category {
@@ -63,6 +79,7 @@ model Category {
   parent        Category?   @relation("CategoryHierarchy", fields: [parentId], references: [id])
   children      Category[]  @relation("CategoryHierarchy")
   transactions  Transaction[]
+  recurringRules RecurringRule[]
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
@@ -80,6 +97,7 @@ model Card {
   minSpendCents  Int?
   paymentMethods PaymentMethod[]
   incomeEvents   IncomeEvent[]
+  recurringRules RecurringRule[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
@@ -96,6 +114,7 @@ model PaymentMethod {
   cardId       String?
   card         Card?             @relation(fields: [cardId], references: [id])
   transactions Transaction[]
+  recurringRules RecurringRule[]
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 
@@ -141,6 +160,8 @@ model User {
   cards          Card[]
   paymentMethods PaymentMethod[]
   tags           Tag[]
+  recurringRules       RecurringRule[]
+  recurringOccurrences RecurringOccurrence[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
@@ -177,4 +198,61 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+model RecurringRule {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind        RecurringKind
+  cadence     RecurringCadence
+  dayOfMonth  Int? // 1-31 for MONTHLY (clamped to the month's length)
+  dayOfWeek   Int? // 0 (Sun) - 6 (Sat) for WEEKLY
+  startDate   DateTime
+  endDate     DateTime? // null = indefinite
+  active      Boolean          @default(true) // false = paused
+  autoConfirm Boolean          @default(false)
+  lastGeneratedDate DateTime? // last occurrence date already processed
+
+  // Spend payload
+  merchant        String?
+  grossCents      Int?
+  discountCents   Int?
+  categoryId      String?
+  category        Category?      @relation(fields: [categoryId], references: [id])
+  paymentMethodId String?
+  paymentMethod   PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  tagIds          String[]
+
+  // Income payload
+  description  String?
+  revenueCents Int?
+  costCents    Int?
+  cardId       String?
+  card         Card?    @relation(fields: [cardId], references: [id])
+
+  occurrences  RecurringOccurrence[]
+  transactions Transaction[]
+  incomeEvents IncomeEvent[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([categoryId])
+  @@index([paymentMethodId])
+  @@index([cardId])
+}
+
+model RecurringOccurrence {
+  id        String        @id @default(cuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ruleId    String
+  rule      RecurringRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  dueDate   DateTime
+  createdAt DateTime      @default(now())
+
+  @@unique([ruleId, dueDate])
+  @@index([userId])
 }
