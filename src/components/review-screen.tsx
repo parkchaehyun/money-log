@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { trpc } from "@/trpc/react";
 import { MultiSelectionSheet } from "@/components/multi-selection-sheet";
+import { MonthYearPicker } from "@/components/month-year-picker";
 import {
   writeIncomePrefill,
   writeRecurringPrefill,
@@ -215,7 +216,9 @@ export function ReviewScreen() {
   const spendDateRangeQuery = trpc.transactions.dateRange.useQuery();
   const incomeDateRangeQuery = trpc.income.dateRange.useQuery();
 
-  const monthOptions = useMemo(() => {
+  // Months grouped by year (newest first), each group offering a "Whole year"
+  // option plus its months. Powers the optgroup'd Month picker.
+  const monthGroups = useMemo(() => {
     const spendMin = spendDateRangeQuery.data?.min;
     const spendMax = spendDateRangeQuery.data?.max;
     const incomeMin = incomeDateRangeQuery.data?.min;
@@ -230,21 +233,22 @@ export function ReviewScreen() {
     const min = new Date(Math.min(...dates.map((d) => d.getTime())));
     const max = new Date(Math.max(...dates.map((d) => d.getTime())));
 
-    const options: { value: string; label: string }[] = [];
+    const byYear = new Map<number, { value: string; label: string }[]>();
     const cursor = new Date(min.getFullYear(), min.getMonth(), 1);
     const end = new Date(max.getFullYear(), max.getMonth(), 1);
     while (cursor <= end) {
       const year = cursor.getFullYear();
       const month = cursor.getMonth();
       const value = `${year}-${String(month + 1).padStart(2, "0")}`;
-      const label = cursor.toLocaleString("en-US", {
-        month: "short",
-        year: "numeric",
-      });
-      options.push({ value, label });
+      const label = cursor.toLocaleString("en-US", { month: "short" });
+      if (!byYear.has(year)) byYear.set(year, []);
+      byYear.get(year)!.push({ value, label });
       cursor.setMonth(cursor.getMonth() + 1);
     }
-    return options.reverse();
+
+    return Array.from(byYear.entries())
+      .map(([year, months]) => ({ year, months: months.reverse() }))
+      .sort((a, b) => b.year - a.year);
   }, [spendDateRangeQuery.data, incomeDateRangeQuery.data]);
 
   const categoriesQuery = trpc.categories.list.useQuery(undefined, {
@@ -354,6 +358,22 @@ export function ReviewScreen() {
     setSpendEditError(null);
     setIncomeEditError(null);
   }, [mode]);
+
+  const applyMonthSelection = (value: string) => {
+    setSelectedMonth(value);
+    if (!value) {
+      return; // "Custom range" — leave From/To as-is for manual editing.
+    }
+    if (value.includes("-")) {
+      const [y, m] = value.split("-").map(Number);
+      setFromDate(formatLocalDate(new Date(y, m - 1, 1)));
+      setToDate(formatLocalDate(new Date(y, m, 0)));
+    } else {
+      const y = Number(value);
+      setFromDate(formatLocalDate(new Date(y, 0, 1)));
+      setToDate(formatLocalDate(new Date(y, 11, 31)));
+    }
+  };
 
   const resetFilters = () => {
     setFromDate(defaultFromDate());
@@ -639,28 +659,11 @@ export function ReviewScreen() {
             <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
               Month
             </label>
-            <select
-              className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900"
+            <MonthYearPicker
               value={selectedMonth}
-              onChange={(event) => {
-                const value = event.target.value;
-                setSelectedMonth(value);
-                if (value) {
-                  const [y, m] = value.split("-").map(Number);
-                  const first = new Date(y, m - 1, 1);
-                  const last = new Date(y, m, 0);
-                  setFromDate(formatLocalDate(first));
-                  setToDate(formatLocalDate(last));
-                }
-              }}
-            >
-              <option value="">Custom range</option>
-              {monthOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              groups={monthGroups}
+              onSelect={applyMonthSelection}
+            />
           </div>
 
           <div>
