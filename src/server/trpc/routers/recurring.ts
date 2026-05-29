@@ -1,4 +1,4 @@
-import type { RecurringRule } from "@prisma/client";
+import type { Prisma, RecurringRule } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
@@ -193,7 +193,7 @@ const pick = <T>(override: T | undefined, fallback: T): T =>
 // Create a real Transaction / IncomeEvent from a rule for a given due date.
 // Overrides (from the Due-card "Edit" flow) take precedence over rule values.
 async function materialize(
-  db: Db,
+  db: Prisma.TransactionClient,
   userId: string,
   rule: RecurringRule,
   dueDate: Date,
@@ -336,34 +336,43 @@ export const recurringRouter = router({
       if (!dueDates.length) {
         continue;
       }
-      for (const dueDate of dueDates) {
-        if (rule.autoConfirm) {
-          await materialize(ctx.db, userId, rule, dueDate);
-          const netCents =
-            rule.kind === "SPEND"
-              ? (rule.grossCents ?? 0) - (rule.discountCents ?? 0)
-              : (rule.revenueCents ?? 0) - (rule.costCents ?? 0);
-          createdEntries.push({
-            kind: rule.kind,
-            label:
-              rule.kind === "SPEND"
-                ? rule.merchant || "Recurring purchase"
-                : rule.description || "Recurring income",
-            netCents,
-          });
-        } else {
-          await ctx.db.recurringOccurrence.upsert({
-            where: { ruleId_dueDate: { ruleId: rule.id, dueDate } },
-            create: { userId, ruleId: rule.id, dueDate },
-            update: {},
-          });
-          queued += 1;
+      // Generate a rule's occurrences and advance lastGeneratedDate atomically,
+      // so a partial failure can't leave entries that get re-created (and thus
+      // duplicated) on the next sync.
+      await ctx.db.$transaction(async (tx) => {
+        for (const dueDate of dueDates) {
+          if (rule.autoConfirm) {
+            await materialize(tx, userId, rule, dueDate);
+          } else {
+            await tx.recurringOccurrence.upsert({
+              where: { ruleId_dueDate: { ruleId: rule.id, dueDate } },
+              create: { userId, ruleId: rule.id, dueDate },
+              update: {},
+            });
+          }
         }
-      }
-      await ctx.db.recurringRule.update({
-        where: { id: rule.id },
-        data: { lastGeneratedDate: dueDates[dueDates.length - 1] },
+        await tx.recurringRule.update({
+          where: { id: rule.id },
+          data: { lastGeneratedDate: dueDates[dueDates.length - 1] },
+        });
       });
+
+      // Summarize only after the transaction commits.
+      if (rule.autoConfirm) {
+        const netCents =
+          rule.kind === "SPEND"
+            ? (rule.grossCents ?? 0) - (rule.discountCents ?? 0)
+            : (rule.revenueCents ?? 0) - (rule.costCents ?? 0);
+        const label =
+          rule.kind === "SPEND"
+            ? rule.merchant || "Recurring purchase"
+            : rule.description || "Recurring income";
+        for (let i = 0; i < dueDates.length; i += 1) {
+          createdEntries.push({ kind: rule.kind, label, netCents });
+        }
+      } else {
+        queued += dueDates.length;
+      }
     }
     return { created: createdEntries.length, queued, createdEntries };
   }),

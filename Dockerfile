@@ -16,6 +16,11 @@ RUN npm run build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
+# tzdata + TZ so the server's "today" matches the user's timezone (the
+# recurring generation uses the server clock). alpine ships no zoneinfo, so
+# setting TZ alone would silently stay UTC.
+RUN apk add --no-cache tzdata
+ENV TZ=Asia/Seoul
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=builder /app/package.json ./package.json
