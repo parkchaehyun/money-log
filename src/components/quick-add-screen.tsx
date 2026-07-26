@@ -7,6 +7,7 @@ import { trpc } from "@/trpc/react";
 import { consumeSpendPrefill } from "@/lib/entry-prefill";
 
 import { AutocompleteField } from "./autocomplete-field";
+import { DiscountInput } from "./discount-input";
 import { MultiSelectionSheet } from "./multi-selection-sheet";
 import { PaymentSelectionSheet } from "./payment-selection-sheet";
 import { SelectionSheet } from "./selection-sheet";
@@ -82,6 +83,10 @@ export function QuickAddScreen() {
   const [amountTouched, setAmountTouched] = useState(false);
   const [discountInput, setDiscountInput] = useState("");
   const [discountEnabled, setDiscountEnabled] = useState(false);
+  const [discountCalculationError, setDiscountCalculationError] = useState<
+    string | null
+  >(null);
+  const [discountControlKey, setDiscountControlKey] = useState(0);
   const [merchant, setMerchant] = useState("");
   const [notes, setNotes] = useState("");
   const [showNotes, setShowNotes] = useState(false);
@@ -129,13 +134,9 @@ export function QuickAddScreen() {
     discountEnabled && discountInput
       ? Number.parseInt(discountInput || "0", 10) || 0
       : 0;
-  const paidValue = Math.max(0, grossValue - discountValue);
   const amountError =
     amountTouched && grossValue <= 0 ? "Enter an amount." : null;
-  const discountError =
-    discountEnabled && grossValue > 0 && discountValue > grossValue
-      ? "Discount cannot exceed price."
-      : null;
+  const discountError = discountEnabled ? discountCalculationError : null;
 
   const createTransaction = trpc.transactions.create.useMutation({
     onSuccess: async () => {
@@ -145,6 +146,7 @@ export function QuickAddScreen() {
       setAmountTouched(false);
       setDiscountInput("");
       setDiscountEnabled(false);
+      setDiscountCalculationError(null);
       setMerchant("");
       setNotes("");
       setShowNotes(false);
@@ -371,6 +373,8 @@ export function QuickAddScreen() {
       setDiscountEnabled(false);
       setDiscountInput("");
     }
+    setDiscountCalculationError(null);
+    setDiscountControlKey((value) => value + 1);
     // Amount varies most, so focus + select it for an immediate retype.
     requestAnimationFrame(() => {
       amountRef.current?.focus();
@@ -571,10 +575,12 @@ export function QuickAddScreen() {
               if (discountEnabled) {
                 setDiscountEnabled(false);
                 setDiscountInput("");
+                setDiscountCalculationError(null);
                 return;
               }
               setDiscountEnabled(true);
               setDiscountInput("");
+              setDiscountCalculationError(null);
             }}
           >
             {discountEnabled ? "Remove discount" : "+ Discount"}
@@ -600,36 +606,16 @@ export function QuickAddScreen() {
           <p className="mt-2 text-sm text-red-600">{amountError}</p>
         ) : null}
         {discountEnabled ? (
-          <div className="mt-4">
-            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-              Discount
-            </label>
-            <div className="relative mt-2">
-              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-zinc-400">
-                ₩
-              </span>
-              <input
-                inputMode="numeric"
-                className="w-full rounded-2xl border border-zinc-200 bg-white py-2 pl-9 pr-4 text-base font-semibold text-zinc-900 outline-none transition focus:border-zinc-900"
-                placeholder="0"
-                value={formatDigits(discountInput)}
-                onChange={(event) =>
-                  setDiscountInput(sanitizeNumber(event.target.value))
-                }
-              />
-            </div>
-            {discountError ? (
-              <p className="mt-2 text-sm text-red-600">{discountError}</p>
-            ) : null}
-            {grossValue > 0 ? (
-              <div className="mt-3 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-zinc-400">
-                <span>Paid</span>
-                <span className="text-sm font-semibold text-zinc-900">
-                  ₩{formatter.format(paidValue)}
-                </span>
-              </div>
-            ) : null}
-          </div>
+          <DiscountInput
+            key={discountControlKey}
+            className="mt-4"
+            grossValue={amountInput}
+            discountValue={discountInput}
+            onValueChange={(value, meta) => {
+              setDiscountInput(value);
+              setDiscountCalculationError(meta.error);
+            }}
+          />
         ) : null}
       </div>
 

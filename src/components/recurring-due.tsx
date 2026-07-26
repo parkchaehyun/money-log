@@ -3,6 +3,7 @@
 import type { inferRouterOutputs } from "@trpc/server";
 import { useState } from "react";
 
+import { DiscountInput } from "@/components/discount-input";
 import { trpc } from "@/trpc/react";
 import type { AppRouter } from "@/server/trpc/root";
 
@@ -141,6 +142,9 @@ function DueCard({
   const [second, setSecond] = useState(
     centsToInput(isSpend ? rule.discountCents : rule.costCents)
   );
+  const [discountCalculationError, setDiscountCalculationError] = useState<
+    string | null
+  >(null);
   const [description, setDescription] = useState(rule.description ?? "");
   const [categoryId, setCategoryId] = useState(rule.categoryId ?? "");
   const [paymentMethodId, setPaymentMethodId] = useState(
@@ -159,6 +163,9 @@ function DueCard({
     setError(null);
     const amountCents = parseOptionalCents(amount);
     const secondCents = parseOptionalCents(second);
+    if (editing && isSpend && discountCalculationError) {
+      return;
+    }
     if (!editing) {
       if (isSpend) {
         if (!amountCents || amountCents <= 0) {
@@ -246,7 +253,9 @@ function DueCard({
           ) : null}
           <button
             type="button"
-            disabled={busy}
+            disabled={
+              busy || (editing && isSpend && Boolean(discountCalculationError))
+            }
             onClick={handleAdd}
             className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
           >
@@ -254,7 +263,13 @@ function DueCard({
           </button>
           <button
             type="button"
-            onClick={() => setEditing((v) => !v)}
+            onClick={() => {
+              if (editing) {
+                setError(null);
+                setDiscountCalculationError(null);
+              }
+              setEditing((value) => !value);
+            }}
             className="rounded-full border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
           >
             {editing ? "Close" : "Edit"}
@@ -307,18 +322,31 @@ function DueCard({
               }}
             />
           </div>
-          <div>
-            <label className={labelCls}>{isSpend ? "Discount" : "Cost"}</label>
-            <input
-              inputMode="numeric"
-              className={fieldCls}
-              value={formatDigits(second)}
-              onChange={(e) => {
-                setError(null);
-                setSecond(sanitizeNumber(e.target.value));
+          {isSpend ? (
+            <DiscountInput
+              className="md:col-span-2"
+              compact
+              grossValue={amount}
+              discountValue={second}
+              onValueChange={(value, meta) => {
+                setSecond(value);
+                setDiscountCalculationError(meta.error);
               }}
             />
-          </div>
+          ) : (
+            <div>
+              <label className={labelCls}>Cost</label>
+              <input
+                inputMode="numeric"
+                className={fieldCls}
+                value={formatDigits(second)}
+                onChange={(e) => {
+                  setError(null);
+                  setSecond(sanitizeNumber(e.target.value));
+                }}
+              />
+            </div>
+          )}
           {isSpend ? (
             <>
               <div>

@@ -3,6 +3,7 @@
 import type { inferRouterOutputs } from "@trpc/server";
 import { useEffect, useMemo, useState } from "react";
 
+import { DiscountInput } from "@/components/discount-input";
 import { trpc } from "@/trpc/react";
 import type { AppRouter } from "@/server/trpc/root";
 import { computeDueDates, nextDueDate } from "@/server/recurring";
@@ -52,6 +53,7 @@ type FormState = {
   merchant: string;
   gross: string;
   discount: string;
+  discountError: string | null;
   categoryId: string;
   paymentMethodId: string;
   tagIds: string[];
@@ -74,6 +76,7 @@ const emptyForm = (kind: Kind = "SPEND"): FormState => ({
   merchant: "",
   gross: "",
   discount: "",
+  discountError: null,
   categoryId: "",
   paymentMethodId: "",
   tagIds: [],
@@ -214,6 +217,7 @@ export function RecurringScreen() {
       gross:
         rule.grossCents && rule.grossCents > 0 ? String(rule.grossCents) : "",
       discount: rule.discountCents ? String(rule.discountCents) : "",
+      discountError: null,
       categoryId: rule.categoryId ?? "",
       paymentMethodId: rule.paymentMethodId ?? "",
       tagIds: rule.tagIds ?? [],
@@ -243,6 +247,9 @@ export function RecurringScreen() {
   const handleSubmit = () => {
     if (!form) return;
     setError(null);
+    if (form.kind === "SPEND" && form.discountError) {
+      return;
+    }
     const startDate = new Date(`${form.startDate}T00:00:00`);
     if (Number.isNaN(startDate.getTime())) {
       setError("Enter a valid start date.");
@@ -782,18 +789,24 @@ function RuleForm({
                 onChange={(e) => set("gross", sanitizeNumber(e.target.value))}
               />
             </div>
-            <div>
-              <label className={labelCls}>Discount</label>
-              <input
-                inputMode="numeric"
-                className={inputCls}
-                placeholder="Optional"
-                value={formatDigits(form.discount)}
-                onChange={(e) =>
-                  set("discount", sanitizeNumber(e.target.value))
-                }
-              />
-            </div>
+            <DiscountInput
+              compact
+              grossValue={form.gross}
+              discountValue={form.discount}
+              onValueChange={(value, meta) =>
+                setForm((prev) =>
+                  prev &&
+                  (prev.discount !== value ||
+                    prev.discountError !== meta.error)
+                    ? {
+                        ...prev,
+                        discount: value,
+                        discountError: meta.error,
+                      }
+                    : prev
+                )
+              }
+            />
             <div>
               <label className={labelCls}>Category</label>
               <select
@@ -937,7 +950,7 @@ function RuleForm({
         <button
           type="button"
           onClick={onSubmit}
-          disabled={saving}
+          disabled={saving || Boolean(form.discountError)}
           className="rounded-full bg-zinc-900 px-5 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
         >
           {saving ? "Saving..." : "Save rule"}

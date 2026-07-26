@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { trpc } from "@/trpc/react";
+import { DiscountInput } from "@/components/discount-input";
 import { MultiSelectionSheet } from "@/components/multi-selection-sheet";
 import { MonthYearPicker } from "@/components/month-year-picker";
 import {
@@ -147,6 +148,8 @@ export function ReviewScreen() {
   });
   const [spendEditTagSheetOpen, setSpendEditTagSheetOpen] = useState(false);
   const [spendEditError, setSpendEditError] = useState<string | null>(null);
+  const [spendDiscountCalculationError, setSpendDiscountCalculationError] =
+    useState<string | null>(null);
   const [incomeEditingId, setIncomeEditingId] = useState<string | null>(null);
   const [incomeDraft, setIncomeDraft] = useState({
     description: "",
@@ -442,6 +445,7 @@ export function ReviewScreen() {
   const toggleSpendEdit = (entry: typeof spendEntries[number]) => {
     if (spendEditingId === entry.id) {
       setSpendEditingId(null);
+      setSpendDiscountCalculationError(null);
       return;
     }
     setSpendEditingId(entry.id);
@@ -455,6 +459,7 @@ export function ReviewScreen() {
       tagIds: entry.tags.map((t) => t.tagId),
     });
     setSpendEditError(null);
+    setSpendDiscountCalculationError(null);
   };
 
   const toggleIncomeEdit = (entry: typeof incomeEntries[number]) => {
@@ -483,6 +488,9 @@ export function ReviewScreen() {
     }
     if (discountCents > grossCents) {
       setSpendEditError("Discount cannot exceed amount.");
+      return;
+    }
+    if (spendDiscountCalculationError) {
       return;
     }
     if (!date) {
@@ -995,22 +1003,20 @@ export function ReviewScreen() {
                               }
                             />
                           </div>
-                          <div>
-                            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                              Discount
-                            </label>
-                            <input
-                              inputMode="numeric"
-                              className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
-                              value={formatDigits(spendDraft.discount)}
-                              onChange={(event) =>
-                                setSpendDraft((prev) => ({
-                                  ...prev,
-                                  discount: sanitizeNumber(event.target.value),
-                                }))
-                              }
-                            />
-                          </div>
+                          <DiscountInput
+                            className="md:col-span-2"
+                            compact
+                            grossValue={spendDraft.gross}
+                            discountValue={spendDraft.discount}
+                            onValueChange={(value, meta) => {
+                              setSpendDraft((prev) =>
+                                prev.discount === value
+                                  ? prev
+                                  : { ...prev, discount: value }
+                              );
+                              setSpendDiscountCalculationError(meta.error);
+                            }}
+                          />
                           <div className="md:col-span-3">
                             <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
                               Category
