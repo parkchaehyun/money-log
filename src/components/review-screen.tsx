@@ -12,6 +12,10 @@ import {
   writeRecurringPrefill,
   writeSpendPrefill,
 } from "@/lib/entry-prefill";
+import {
+  toPaymentMethodDraft,
+  toPaymentMethodUpdate,
+} from "@/lib/review-spend-edit";
 
 const formatter = new Intl.NumberFormat("ko-KR");
 
@@ -143,6 +147,7 @@ export function ReviewScreen() {
     discount: "",
     date: "",
     categoryId: "",
+    paymentMethodId: "",
     notes: "",
     tagIds: [] as string[],
   });
@@ -455,6 +460,7 @@ export function ReviewScreen() {
       discount: String(entry.discountCents),
       date: formatLocalDate(entry.date),
       categoryId: entry.categoryId ?? "",
+      paymentMethodId: toPaymentMethodDraft(entry.paymentMethodId),
       notes: entry.notes ?? "",
       tagIds: entry.tags.map((t) => t.tagId),
     });
@@ -506,6 +512,7 @@ export function ReviewScreen() {
         discountCents,
         date,
         categoryId: spendDraft.categoryId || null,
+        paymentMethodId: toPaymentMethodUpdate(spendDraft.paymentMethodId),
         notes: spendDraft.notes.trim() || null,
         tagIds: spendDraft.tagIds,
       });
@@ -1017,27 +1024,55 @@ export function ReviewScreen() {
                               setSpendDiscountCalculationError(meta.error);
                             }}
                           />
-                          <div className="md:col-span-3">
-                            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                              Category
-                            </label>
-                            <select
-                              className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900"
-                              value={spendDraft.categoryId}
-                              onChange={(event) =>
-                                setSpendDraft((prev) => ({
-                                  ...prev,
-                                  categoryId: event.target.value,
-                                }))
-                              }
-                            >
-                              <option value="">Uncategorized</option>
-                              {categories.map((category) => (
-                                <option key={category.id} value={category.id}>
-                                  {category.name}
-                                </option>
-                              ))}
-                            </select>
+                          <div className="grid gap-3 md:col-span-3 md:grid-cols-2">
+                            <div>
+                              <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                                Category
+                              </label>
+                              <select
+                                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900"
+                                value={spendDraft.categoryId}
+                                onChange={(event) =>
+                                  setSpendDraft((prev) => ({
+                                    ...prev,
+                                    categoryId: event.target.value,
+                                  }))
+                                }
+                              >
+                                <option value="">Uncategorized</option>
+                                {categories.map((category) => (
+                                  <option key={category.id} value={category.id}>
+                                    {category.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                                Payment Method
+                              </label>
+                              <select
+                                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
+                                value={spendDraft.paymentMethodId}
+                                disabled={paymentMethodsQuery.isLoading}
+                                onChange={(event) =>
+                                  setSpendDraft((prev) => ({
+                                    ...prev,
+                                    paymentMethodId: event.target.value,
+                                  }))
+                                }
+                              >
+                                <option value="">No payment method</option>
+                                {paymentMethods.map((paymentMethod) => (
+                                  <option
+                                    key={paymentMethod.id}
+                                    value={paymentMethod.id}
+                                  >
+                                    {paymentMethod.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
                           </div>
                           <div className="md:col-span-3">
                             <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
