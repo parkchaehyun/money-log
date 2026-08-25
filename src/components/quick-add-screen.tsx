@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 
 import { trpc } from "@/trpc/react";
 import { consumeSpendPrefill } from "@/lib/entry-prefill";
@@ -10,7 +9,9 @@ import { AutocompleteField } from "./autocomplete-field";
 import { DiscountInput } from "./discount-input";
 import { MultiSelectionSheet } from "./multi-selection-sheet";
 import { PaymentSelectionSheet } from "./payment-selection-sheet";
+import { SaveToast } from "./save-toast";
 import { SelectionSheet } from "./selection-sheet";
+import { CloseIcon, PlusIcon } from "./ui-icons";
 
 const formatter = new Intl.NumberFormat("ko-KR");
 const CASH_METHOD_NAME = "Cash";
@@ -101,13 +102,12 @@ export function QuickAddScreen() {
   const [toast, setToast] = useState<{ id: number; message: string } | null>(
     null
   );
-  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
-  const [hasEnsuredCash, setHasEnsuredCash] = useState(false);
 
   const [categorySheetOpen, setCategorySheetOpen] = useState(false);
   const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
   const [tagSheetOpen, setTagSheetOpen] = useState(false);
   const amountRef = useRef<HTMLInputElement>(null);
+  const cashEnsureAttemptedRef = useRef(false);
 
   const {
     data: categoriesData,
@@ -175,9 +175,12 @@ export function QuickAddScreen() {
         setRecentTagIds(nextRecentTags);
         writeStoredList(recentTagKey, nextRecentTags);
       }
-      await utils.transactions.list.invalidate();
-      await utils.transactions.summary.invalidate();
-      await utils.transactions.merchantOptions.invalidate();
+      await Promise.all([
+        utils.transactions.list.invalidate(),
+        utils.transactions.summary.invalidate(),
+        utils.transactions.merchantOptions.invalidate(),
+        utils.dashboard.invalidate(),
+      ]);
     },
     onError: (error) => {
       setStatusTone("error");
@@ -187,10 +190,7 @@ export function QuickAddScreen() {
         error.message ??
         "Unable to save. Please try again.";
       setStatus(message);
-      if (process.env.NODE_ENV === "development") {
-        // eslint-disable-next-line no-console
-        console.error(error);
-      }
+      if (process.env.NODE_ENV === "development") console.error(error);
     },
   });
 
@@ -205,13 +205,6 @@ export function QuickAddScreen() {
       window.clearTimeout(timeout);
     };
   }, [toast]);
-
-  useEffect(() => {
-    if (typeof document === "undefined") {
-      return;
-    }
-    setPortalTarget(document.body);
-  }, []);
 
   const createCategory = trpc.categories.create.useMutation({
     onSuccess: async (data) => {
@@ -267,9 +260,12 @@ export function QuickAddScreen() {
   );
 
   useEffect(() => {
-    setRecentCategoryIds(readStoredList(recentCategoryKey));
-    setRecentPaymentIds(readStoredList(recentPaymentKey));
-    setRecentTagIds(readStoredList(recentTagKey));
+    const frame = window.requestAnimationFrame(() => {
+      setRecentCategoryIds(readStoredList(recentCategoryKey));
+      setRecentPaymentIds(readStoredList(recentPaymentKey));
+      setRecentTagIds(readStoredList(recentTagKey));
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   useEffect(() => {
@@ -277,27 +273,34 @@ export function QuickAddScreen() {
     if (!prefill) {
       return;
     }
-    setAmountInput(prefill.amount);
-    if (prefill.discount) {
-      setDiscountEnabled(true);
-      setDiscountInput(prefill.discount);
-    }
-    setMerchant(prefill.merchant);
-    if (prefill.notes) {
-      setShowNotes(true);
-      setNotes(prefill.notes);
-    }
-    setCategoryId(prefill.categoryId);
-    setPaymentMethodId(prefill.paymentMethodId);
-    setSelectedTagIds(prefill.tagIds);
+    const frame = window.requestAnimationFrame(() => {
+      setAmountInput(prefill.amount);
+      if (prefill.discount) {
+        setDiscountEnabled(true);
+        setDiscountInput(prefill.discount);
+      }
+      setMerchant(prefill.merchant);
+      if (prefill.notes) {
+        setShowNotes(true);
+        setNotes(prefill.notes);
+      }
+      setCategoryId(prefill.categoryId);
+      setPaymentMethodId(prefill.paymentMethodId);
+      setSelectedTagIds(prefill.tagIds);
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   useEffect(() => {
-    if (paymentMethodsLoading || hasEnsuredCash || ensureCashMethod.isPending) {
+    if (
+      paymentMethodsLoading ||
+      cashEnsureAttemptedRef.current ||
+      ensureCashMethod.isPending
+    ) {
       return;
     }
     if (!cashMethod) {
-      setHasEnsuredCash(true);
+      cashEnsureAttemptedRef.current = true;
       ensureCashMethod.mutate({
         name: CASH_METHOD_NAME,
         type: "CASH_TRANSFER",
@@ -306,7 +309,6 @@ export function QuickAddScreen() {
   }, [
     cashMethod,
     ensureCashMethod,
-    hasEnsuredCash,
     paymentMethodsLoading,
   ]);
 
@@ -481,67 +483,13 @@ export function QuickAddScreen() {
   };
 
   return (
-    <section className="rounded-3xl border border-zinc-200 bg-white/95 p-6 shadow-sm">
-      {toast && portalTarget
-        ? createPortal(
-            <div
-              className="pointer-events-none fixed inset-x-0 z-[60] flex justify-center px-6"
-              style={{ bottom: "calc(env(safe-area-inset-bottom) + 16px)" }}
-            >
-              <div
-                role="status"
-                aria-live="polite"
-                className="rounded-full px-4 py-2 text-sm font-semibold shadow-lg"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  whiteSpace: "nowrap",
-                  backgroundColor: "#16a34a",
-                  color: "#ffffff",
-                  boxShadow: "0 10px 24px rgba(16, 163, 74, 0.25)",
-                }}
-              >
-                <span
-                  className="rounded-full"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 20,
-                    height: 20,
-                    flex: "0 0 20px",
-                    backgroundColor: "rgba(255, 255, 255, 0.2)",
-                  }}
-                >
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 20 20"
-                    fill="none"
-                    className="h-3.5 w-3.5"
-                    width="14"
-                    height="14"
-                  >
-                    <path
-                      d="M5 10.5l3 3L15 7"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-                <span style={{ whiteSpace: "nowrap" }}>{toast.message}</span>
-              </div>
-            </div>,
-            portalTarget
-          )
-        : null}
+    <section className="surface-panel p-4 sm:p-6">
+      <SaveToast message={toast?.message ?? null} />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600">
+        <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-soft/60 px-3 py-2 text-sm text-ink-soft">
           <span>Date</span>
           <div className="relative">
-            <span className="text-base font-medium tabular-nums text-zinc-900 sm:text-sm">
+            <span className="financial-number text-base font-medium text-ink sm:text-sm">
               {formatShortDate(date)}
             </span>
             <input
@@ -557,20 +505,20 @@ export function QuickAddScreen() {
           type="button"
           disabled={!canSubmit}
           onClick={handleSave}
-          className="rounded-2xl bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+          className="hidden rounded-xl bg-accent px-5 py-2 text-sm font-semibold text-white transition hover:bg-accent-strong disabled:bg-muted sm:block"
         >
-          {createTransaction.isPending ? "Saving..." : "Save"}
+          {createTransaction.isPending ? "Saving…" : "Save"}
         </button>
       </div>
 
-      <div className="mt-6 rounded-2xl border border-zinc-100 bg-zinc-50/70 p-4">
+      <div className="mt-6 rounded-xl border border-line bg-surface-soft/35 p-4">
         <div className="flex items-center justify-between">
-          <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+          <label className="text-xs uppercase tracking-[0.2em] text-muted">
             Amount
           </label>
           <button
             type="button"
-            className="text-xs font-medium text-zinc-500 hover:text-zinc-900"
+            className="text-xs font-semibold text-accent hover:text-accent-strong"
             onClick={() => {
               if (discountEnabled) {
                 setDiscountEnabled(false);
@@ -583,17 +531,19 @@ export function QuickAddScreen() {
               setDiscountCalculationError(null);
             }}
           >
-            {discountEnabled ? "Remove discount" : "+ Discount"}
+            {discountEnabled ? "Remove discount" : "Discount"}
           </button>
         </div>
         <div className="relative mt-2">
-          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-lg font-semibold text-zinc-400">
+          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-lg font-semibold text-muted">
             ₩
           </span>
           <input
             ref={amountRef}
+            aria-label="Amount"
+            aria-invalid={Boolean(amountError)}
             inputMode="numeric"
-            className="w-full rounded-2xl border border-zinc-200 bg-white py-3 pl-10 pr-4 text-lg font-semibold text-zinc-900 outline-none transition focus:border-zinc-900"
+            className="financial-number w-full rounded-xl border border-line bg-surface py-3 pl-10 pr-4 text-lg font-semibold text-ink transition focus:border-accent"
             placeholder="0"
             value={formatDigits(amountInput)}
             onChange={(event) =>
@@ -603,7 +553,7 @@ export function QuickAddScreen() {
           />
         </div>
         {amountError ? (
-          <p className="mt-2 text-sm text-red-600">{amountError}</p>
+          <p className="mt-2 text-sm text-danger">{amountError}</p>
         ) : null}
         {discountEnabled ? (
           <DiscountInput
@@ -646,23 +596,23 @@ export function QuickAddScreen() {
       <div className="mt-6 grid gap-6 md:grid-cols-2">
         <div>
           <div className="flex items-center justify-between">
-            <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+            <p className="text-xs uppercase tracking-[0.2em] text-muted">
               Category
             </p>
             <button
               type="button"
               aria-label="Open category picker"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+              className="grid size-11 place-items-center rounded-full text-accent transition hover:bg-accent-soft hover:text-accent-strong"
               onClick={() => setCategorySheetOpen(true)}
             >
-              +
+              <PlusIcon />
             </button>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {categoriesLoading ? (
-              <span className="text-sm text-zinc-400">Loading...</span>
+              <span className="text-sm text-muted">Loading...</span>
             ) : categoriesError ? (
-              <span className="text-sm text-red-500">Failed to load.</span>
+              <span className="text-sm text-danger">Failed to load.</span>
             ) : (
               categoryChoices.map((item) => (
                 <button
@@ -673,8 +623,8 @@ export function QuickAddScreen() {
                   }
                   className={`rounded-full px-4 py-2 text-sm font-medium transition ${
                     categoryId === item.id
-                      ? "bg-zinc-900 text-white"
-                      : "bg-zinc-100 text-zinc-600 hover:text-zinc-900"
+                      ? "bg-ink text-surface"
+                      : "bg-surface-soft text-ink-soft hover:text-ink"
                   }`}
                 >
                   {item.name}
@@ -686,23 +636,23 @@ export function QuickAddScreen() {
 
         <div>
           <div className="flex items-center justify-between">
-            <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+            <p className="text-xs uppercase tracking-[0.2em] text-muted">
               Payment
             </p>
             <button
               type="button"
               aria-label="Open payment picker"
-              className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+              className="grid size-11 place-items-center rounded-full text-accent transition hover:bg-accent-soft hover:text-accent-strong"
               onClick={() => setPaymentSheetOpen(true)}
             >
-              +
+              <PlusIcon />
             </button>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {paymentMethodsLoading ? (
-              <span className="text-sm text-zinc-400">Loading...</span>
+              <span className="text-sm text-muted">Loading...</span>
             ) : paymentMethodsError ? (
-              <span className="text-sm text-red-500">Failed to load.</span>
+              <span className="text-sm text-danger">Failed to load.</span>
             ) : (
               paymentChoices.map((item) => (
                 <button
@@ -715,8 +665,8 @@ export function QuickAddScreen() {
                   }
                   className={`rounded-full px-4 py-2 text-sm font-medium transition ${
                     paymentMethodId === item.id
-                      ? "bg-zinc-900 text-white"
-                      : "bg-zinc-100 text-zinc-600 hover:text-zinc-900"
+                      ? "bg-ink text-surface"
+                      : "bg-surface-soft text-ink-soft hover:text-ink"
                   }`}
                 >
                   {item.name}
@@ -731,37 +681,39 @@ export function QuickAddScreen() {
         {selectedTagIds.length > 0 ? (
           <>
             <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted">
                 Tags
               </p>
               <button
                 type="button"
                 aria-label="Open tag picker"
-                className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+                className="grid size-11 place-items-center rounded-full text-accent transition hover:bg-accent-soft hover:text-accent-strong"
                 onClick={() => setTagSheetOpen(true)}
               >
-                +
+                <PlusIcon />
               </button>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               {tagsLoading ? (
-                <span className="text-sm text-zinc-400">Loading...</span>
+                <span className="text-sm text-muted">Loading...</span>
               ) : tagsError ? (
-                <span className="text-sm text-red-500">Failed to load.</span>
+                <span className="text-sm text-danger">Failed to load.</span>
               ) : (
                 <>
                   {selectedTags.map((item) => (
                     <button
                       key={item.id}
                       type="button"
+                      aria-label={`Remove ${item.name}`}
                       onClick={() =>
                         setSelectedTagIds((prev) =>
                           prev.filter((id) => id !== item.id)
                         )
                       }
-                      className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800"
+                      className="inline-flex items-center gap-2 rounded-full bg-ink px-4 py-2 text-sm font-medium text-surface transition hover:bg-ink-soft"
                     >
-                      {item.name} ×
+                      {item.name}
+                      <CloseIcon />
                     </button>
                   ))}
                   {recentTagChoices.map((item) => (
@@ -771,7 +723,7 @@ export function QuickAddScreen() {
                       onClick={() =>
                         setSelectedTagIds((prev) => [...prev, item.id])
                       }
-                      className="rounded-full bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:text-zinc-900"
+                      className="rounded-full bg-surface-soft px-4 py-2 text-sm font-medium text-ink-soft transition hover:text-ink"
                     >
                       {item.name}
                     </button>
@@ -783,10 +735,10 @@ export function QuickAddScreen() {
         ) : (
           <button
             type="button"
-            className="text-xs font-medium text-zinc-500 hover:text-zinc-900"
+            className="text-xs font-semibold text-accent hover:text-accent-strong"
             onClick={() => setTagSheetOpen(true)}
           >
-            + Add tags
+            Add tags
           </button>
         )}
       </div>
@@ -794,11 +746,11 @@ export function QuickAddScreen() {
       <div className="mt-6">
         {showNotes || notes.trim() ? (
           <>
-            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+            <label className="text-xs uppercase tracking-[0.2em] text-muted">
               Notes
             </label>
             <textarea
-              className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+              className="mt-2 w-full rounded-xl border border-line bg-surface px-4 py-3 text-base text-ink transition focus:border-accent sm:text-sm"
               rows={2}
               placeholder="Optional note"
               value={notes}
@@ -808,23 +760,35 @@ export function QuickAddScreen() {
         ) : (
           <button
             type="button"
-            className="text-xs font-medium text-zinc-500 hover:text-zinc-900"
+            className="text-xs font-semibold text-accent hover:text-accent-strong"
             onClick={() => setShowNotes(true)}
           >
-            + Add note
+            Add note
           </button>
         )}
       </div>
 
       {status ? (
         <p
+          role={statusTone === "error" ? "alert" : "status"}
           className={`mt-4 text-sm ${
-            statusTone === "error" ? "text-red-600" : "text-zinc-500"
+            statusTone === "error" ? "text-danger" : "text-muted"
           }`}
         >
           {status}
         </p>
       ) : null}
+
+      <div className="sticky bottom-2 z-10 mt-6 rounded-2xl border border-line bg-surface/95 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_12px_30px_rgba(24,33,28,0.16)] sm:hidden">
+        <button
+          type="button"
+          disabled={!canSubmit}
+          onClick={handleSave}
+          className="w-full rounded-xl bg-accent px-5 py-3 text-sm font-semibold text-white transition hover:bg-accent-strong disabled:bg-muted"
+        >
+          {createTransaction.isPending ? "Saving…" : "Save"}
+        </button>
+      </div>
 
       <SelectionSheet
         open={categorySheetOpen}

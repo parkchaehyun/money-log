@@ -17,6 +17,20 @@ const startOfDay = (d: Date) =>
 const addDays = (d: Date, n: number) =>
   new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 
+export const resumeCursor = (today: Date) => addDays(startOfDay(today), -1);
+
+export const resumeLastGeneratedDate = (
+  lastGeneratedDate: Date | null,
+  today: Date
+) => {
+  const cursor = resumeCursor(today);
+  if (!lastGeneratedDate) {
+    return cursor;
+  }
+  const existing = startOfDay(lastGeneratedDate);
+  return existing > cursor ? existing : cursor;
+};
+
 const daysInMonth = (year: number, monthIndex: number) =>
   new Date(year, monthIndex + 1, 0).getDate();
 

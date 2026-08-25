@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { dedupeByKey } from "@/lib/dedupe";
@@ -49,20 +50,19 @@ const listInput = z
 
 type ListInput = z.infer<typeof listInput>;
 
-type TransactionWhere = Record<string, any>;
-
 const buildWhere = (userId: string, input?: ListInput) => {
-  const where: TransactionWhere = { userId };
-  const andFilters: TransactionWhere[] = [];
+  const where: Prisma.TransactionWhereInput = { userId };
+  const andFilters: Prisma.TransactionWhereInput[] = [];
 
   if (input?.from || input?.to) {
-    where.date = {};
+    const date: Prisma.DateTimeFilter = {};
     if (input.from) {
-      where.date.gte = input.from;
+      date.gte = input.from;
     }
     if (input.to) {
-      where.date.lte = input.to;
+      date.lte = input.to;
     }
+    where.date = date;
   }
 
   if (input?.categoryId) {
@@ -77,13 +77,14 @@ const buildWhere = (userId: string, input?: ListInput) => {
     input?.minNetCents !== undefined ||
     input?.maxNetCents !== undefined
   ) {
-    where.netCents = {};
+    const netCents: Prisma.IntFilter = {};
     if (input?.minNetCents !== undefined) {
-      where.netCents.gte = input.minNetCents;
+      netCents.gte = input.minNetCents;
     }
     if (input?.maxNetCents !== undefined) {
-      where.netCents.lte = input.maxNetCents;
+      netCents.lte = input.maxNetCents;
     }
+    where.netCents = netCents;
   }
 
   if (input?.search) {
@@ -96,7 +97,7 @@ const buildWhere = (userId: string, input?: ListInput) => {
   }
 
   if (input?.tagIds?.length || input?.includeUntagged) {
-    const tagFilters: TransactionWhere[] = [];
+    const tagFilters: Prisma.TransactionWhereInput[] = [];
     if (input.tagIds?.length) {
       tagFilters.push({
         tags: {

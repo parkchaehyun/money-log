@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { dedupeByKey } from "@/lib/dedupe";
@@ -31,18 +32,17 @@ const listInput = z
   })
   .optional();
 
-type IncomeWhere = Record<string, any>;
-
 const buildWhere = (userId: string, input?: z.infer<typeof listInput>) => {
-  const where: IncomeWhere = { userId };
+  const where: Prisma.IncomeEventWhereInput = { userId };
   if (input?.from || input?.to) {
-    where.date = {};
+    const date: Prisma.DateTimeFilter = {};
     if (input.from) {
-      where.date.gte = input.from;
+      date.gte = input.from;
     }
     if (input.to) {
-      where.date.lte = input.to;
+      date.lte = input.to;
     }
+    where.date = date;
   }
   if (input?.cardId) {
     where.cardId = input.cardId;

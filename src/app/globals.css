@@ -1,26 +1,146 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --canvas: #f3f0e8;
+  --surface: #fffdf8;
+  --surface-soft: #eae6dc;
+  --ink: #18211c;
+  --ink-soft: #303b34;
+  --muted: #626a64;
+  --line: #d8d4ca;
+  --line-strong: #bbb7ad;
+  --accent: #256e52;
+  --accent-strong: #18523c;
+  --accent-soft: #dcebe3;
+  --success: #19734e;
+  --warning: #9a5a13;
+  --danger: #b23b4d;
+  --expense: #b23b4d;
+  --income: #19734e;
+  --focus: #2c785b;
+  --shadow-panel: 0 18px 50px rgba(48, 43, 34, 0.09);
+  --shadow-float: 0 24px 70px rgba(28, 31, 27, 0.2);
+  color-scheme: light;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--canvas);
+  --color-foreground: var(--ink);
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-soft: var(--surface-soft);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-expense: var(--expense);
+  --color-income: var(--income);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: var(--line);
+}
+
+html {
+  min-width: 320px;
+  background: var(--canvas);
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  caret-color: var(--accent);
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--focus) 72%, white);
+  outline-offset: 3px;
+}
+
+button,
+select,
+input:not([type="checkbox"]):not([type="radio"]),
+textarea {
+  min-height: 44px;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+button:disabled,
+input:disabled,
+select:disabled {
+  cursor: not-allowed;
+}
+
+.app-canvas {
+  background-color: var(--canvas);
+  background-image: linear-gradient(
+    to bottom,
+    transparent 31px,
+    rgba(55, 63, 57, 0.035) 32px
+  );
+  background-size: 100% 32px;
+}
+
+.surface-panel {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 97%, transparent);
+  box-shadow: var(--shadow-panel);
+}
+
+.financial-number {
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.02em;
+}
+
+.sheet-dialog {
+  box-shadow: var(--shadow-float);
+}
+
+.sheet-dialog::backdrop {
+  background: rgba(18, 24, 20, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+.scrollbar-subtle {
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

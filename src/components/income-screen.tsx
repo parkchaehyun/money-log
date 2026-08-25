@@ -1,13 +1,14 @@
 "use client";
 
-import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { trpc } from "@/trpc/react";
 import { consumeIncomePrefill } from "@/lib/entry-prefill";
 
 import { AutocompleteField } from "./autocomplete-field";
+import { SaveToast } from "./save-toast";
 import { SelectionSheet } from "./selection-sheet";
+import { CloseIcon, PlusIcon } from "./ui-icons";
 
 const formatter = new Intl.NumberFormat("ko-KR");
 
@@ -56,7 +57,6 @@ export function IncomeScreen() {
   const [toast, setToast] = useState<{ id: number; message: string } | null>(
     null
   );
-  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
 
   const { data: cardsData } = trpc.cards.list.useQuery();
   const cards = useMemo(
@@ -124,8 +124,12 @@ export function IncomeScreen() {
       setCostEnabled(false);
       setDescription("");
       setDescriptionTouched(false);
-      await utils.income.list.invalidate();
-      await utils.income.sourceOptions.invalidate();
+      await Promise.all([
+        utils.income.list.invalidate(),
+        utils.income.summary.invalidate(),
+        utils.income.sourceOptions.invalidate(),
+        utils.dashboard.invalidate(),
+      ]);
     },
     onError: (error) => {
       setStatusTone("error");
@@ -136,10 +140,7 @@ export function IncomeScreen() {
         error.message ??
         "Unable to save. Please try again.";
       setStatus(message);
-      if (process.env.NODE_ENV === "development") {
-        // eslint-disable-next-line no-console
-        console.error(error);
-      }
+      if (process.env.NODE_ENV === "development") console.error(error);
     },
   });
 
@@ -156,24 +157,20 @@ export function IncomeScreen() {
   }, [toast]);
 
   useEffect(() => {
-    if (typeof document === "undefined") {
-      return;
-    }
-    setPortalTarget(document.body);
-  }, []);
-
-  useEffect(() => {
     const prefill = consumeIncomePrefill();
     if (!prefill) {
       return;
     }
-    setRevenueInput(prefill.revenue);
-    if (prefill.cost) {
-      setCostEnabled(true);
-      setCostInput(prefill.cost);
-    }
-    setDescription(prefill.description);
-    setCardId(prefill.cardId);
+    const frame = window.requestAnimationFrame(() => {
+      setRevenueInput(prefill.revenue);
+      if (prefill.cost) {
+        setCostEnabled(true);
+        setCostInput(prefill.cost);
+      }
+      setDescription(prefill.description);
+      setCardId(prefill.cardId);
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   const handleSave = () => {
@@ -206,66 +203,13 @@ export function IncomeScreen() {
   }));
 
   return (
-    <section className="rounded-3xl border border-zinc-200 bg-white/95 p-6 shadow-sm">
-      {toast && portalTarget
-        ? createPortal(
-            <div
-              className="pointer-events-none fixed inset-x-0 z-[60] flex justify-center px-6"
-              style={{ bottom: "calc(env(safe-area-inset-bottom) + 16px)" }}
-            >
-              <div
-                role="status"
-                aria-live="polite"
-                className="rounded-full px-4 py-2 text-sm font-semibold shadow-lg"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  whiteSpace: "nowrap",
-                  backgroundColor: "#16a34a",
-                  color: "#ffffff",
-                  boxShadow: "0 10px 24px rgba(16, 163, 74, 0.25)",
-                }}
-              >
-                <span
-                  className="rounded-full bg-white/20"
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: 20,
-                    height: 20,
-                    flex: "0 0 20px",
-                  }}
-                >
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 20 20"
-                    fill="none"
-                    className="h-3.5 w-3.5"
-                    width="14"
-                    height="14"
-                  >
-                    <path
-                      d="M5 10.5l3 3L15 7"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-                <span>{toast.message}</span>
-              </div>
-            </div>,
-            portalTarget
-          )
-        : null}
+    <section className="surface-panel p-4 sm:p-6">
+      <SaveToast message={toast?.message ?? null} />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600">
+        <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-soft/60 px-3 py-2 text-sm text-ink-soft">
           <span>Date</span>
           <div className="relative">
-            <span className="text-base font-medium tabular-nums text-zinc-900 sm:text-sm">
+            <span className="financial-number text-base font-medium text-ink sm:text-sm">
               {formatShortDate(date)}
             </span>
             <input
@@ -281,20 +225,20 @@ export function IncomeScreen() {
           type="button"
           disabled={!canSubmit || createIncome.isPending}
           onClick={handleSave}
-          className="rounded-2xl bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+          className="hidden rounded-xl bg-accent px-5 py-2 text-sm font-semibold text-white transition hover:bg-accent-strong disabled:bg-muted sm:block"
         >
-          {createIncome.isPending ? "Saving..." : "Save"}
+          {createIncome.isPending ? "Saving…" : "Save"}
         </button>
       </div>
 
-      <div className="mt-6 rounded-2xl border border-zinc-100 bg-zinc-50/70 p-4">
+      <div className="mt-6 rounded-xl border border-line bg-surface-soft/35 p-4">
         <div className="flex items-center justify-between">
-          <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+          <label className="text-xs uppercase tracking-[0.2em] text-muted">
             Revenue
           </label>
           <button
             type="button"
-            className="text-xs font-medium text-zinc-500 hover:text-zinc-900"
+            className="text-xs font-semibold text-accent hover:text-accent-strong"
             onClick={() => {
               if (costEnabled) {
                 setCostEnabled(false);
@@ -305,17 +249,19 @@ export function IncomeScreen() {
               setCostInput("");
             }}
           >
-            {costEnabled ? "Remove cost" : "+ Cost"}
+            {costEnabled ? "Remove cost" : "Cost"}
           </button>
         </div>
         <div className="relative mt-2">
-          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-lg font-semibold text-zinc-400">
+          <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-lg font-semibold text-muted">
             ₩
           </span>
           <input
             ref={revenueRef}
+            aria-label="Revenue"
+            aria-invalid={Boolean(revenueError)}
             inputMode="numeric"
-            className="w-full rounded-2xl border border-zinc-200 bg-white py-3 pl-10 pr-4 text-lg font-semibold text-zinc-900 outline-none transition focus:border-zinc-900"
+            className="financial-number w-full rounded-xl border border-line bg-surface py-3 pl-10 pr-4 text-lg font-semibold text-ink transition focus:border-accent"
             placeholder="0"
             value={formatDigits(revenueInput)}
             onChange={(event) => setRevenueInput(sanitizeNumber(event.target.value))}
@@ -323,29 +269,30 @@ export function IncomeScreen() {
           />
         </div>
         {revenueError ? (
-          <p className="mt-2 text-sm text-red-600">{revenueError}</p>
+          <p className="mt-2 text-sm text-danger">{revenueError}</p>
         ) : null}
         {costEnabled ? (
           <div className="mt-4">
-            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+            <label className="text-xs uppercase tracking-[0.2em] text-muted">
               Cost
             </label>
             <div className="relative mt-2">
-              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-zinc-400">
+              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted">
                 ₩
               </span>
               <input
+                aria-label="Cost"
                 inputMode="numeric"
-                className="w-full rounded-2xl border border-zinc-200 bg-white py-2 pl-9 pr-4 text-base font-semibold text-zinc-900 outline-none transition focus:border-zinc-900"
+                className="financial-number w-full rounded-xl border border-line bg-surface py-2 pl-9 pr-4 text-base font-semibold text-ink transition focus:border-accent"
                 placeholder="0"
                 value={formatDigits(costInput)}
                 onChange={(event) => setCostInput(sanitizeNumber(event.target.value))}
               />
             </div>
             {revenueValue > 0 ? (
-              <div className="mt-3 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-zinc-400">
+              <div className="mt-3 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-muted">
                 <span>Net</span>
-                <span className="text-sm font-semibold text-zinc-900">
+                <span className="financial-number text-sm font-semibold text-ink">
                   ₩{formatter.format(netValue)}
                 </span>
               </div>
@@ -376,7 +323,7 @@ export function IncomeScreen() {
           }}
         />
         {descriptionError ? (
-          <p className="mt-2 text-sm text-red-600">{descriptionError}</p>
+          <p className="mt-2 text-sm text-danger">{descriptionError}</p>
         ) : null}
       </div>
 
@@ -384,48 +331,62 @@ export function IncomeScreen() {
         {selectedCard ? (
           <>
             <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted">
                 Card
               </p>
               <button
                 type="button"
                 aria-label="Change card"
-                className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900"
+                className="grid size-11 place-items-center rounded-full text-accent transition hover:bg-accent-soft hover:text-accent-strong"
                 onClick={() => setCardSheetOpen(true)}
               >
-                +
+                <PlusIcon />
               </button>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
+                aria-label={`Remove ${selectedCard.name}`}
                 onClick={() => setCardId(null)}
-                className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800"
+                className="inline-flex items-center gap-2 rounded-full bg-ink px-4 py-2 text-sm font-medium text-surface transition hover:bg-ink-soft"
               >
-                {selectedCard.name} ×
+                {selectedCard.name}
+                <CloseIcon />
               </button>
             </div>
           </>
         ) : (
           <button
             type="button"
-            className="text-xs font-medium text-zinc-500 hover:text-zinc-900"
+            className="text-xs font-semibold text-accent hover:text-accent-strong"
             onClick={() => setCardSheetOpen(true)}
           >
-            + Add card
+            Add card
           </button>
         )}
       </div>
 
       {status ? (
         <p
+          role={statusTone === "error" ? "alert" : "status"}
           className={`mt-4 text-sm ${
-            statusTone === "error" ? "text-red-600" : "text-zinc-500"
+            statusTone === "error" ? "text-danger" : "text-muted"
           }`}
         >
           {status}
         </p>
       ) : null}
+
+      <div className="sticky bottom-2 z-10 mt-6 rounded-2xl border border-line bg-surface/95 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_12px_30px_rgba(24,33,28,0.16)] sm:hidden">
+        <button
+          type="button"
+          disabled={!canSubmit || createIncome.isPending}
+          onClick={handleSave}
+          className="w-full rounded-xl bg-accent px-5 py-3 text-sm font-semibold text-white transition hover:bg-accent-strong disabled:bg-muted"
+        >
+          {createIncome.isPending ? "Saving…" : "Save"}
+        </button>
+      </div>
 
       <SelectionSheet
         open={cardSheetOpen}

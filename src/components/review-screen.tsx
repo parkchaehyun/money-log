@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { trpc } from "@/trpc/react";
@@ -16,6 +17,7 @@ import {
   toPaymentMethodDraft,
   toPaymentMethodUpdate,
 } from "@/lib/review-spend-edit";
+import { countAdvancedReviewFilters } from "@/lib/ui-behavior";
 
 const formatter = new Intl.NumberFormat("ko-KR");
 
@@ -136,6 +138,7 @@ export function ReviewScreen() {
   const [maxNetInput, setMaxNetInput] = useState("");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [includeUntagged, setIncludeUntagged] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [tagSheetOpen, setTagSheetOpen] = useState(false);
   const [spendTake, setSpendTake] = useState(60);
   const [incomeTake, setIncomeTake] = useState(60);
@@ -167,7 +170,8 @@ export function ReviewScreen() {
 
   const fromValue = parseDateInput(fromDate);
   const toValue = parseDateInput(toDate, true);
-  const searchValue = search.trim();
+  const deferredSearch = useDeferredValue(search);
+  const searchValue = deferredSearch.trim();
   const minNetCents = parseCents(minNetInput);
   const maxNetCents = parseCents(maxNetInput);
 
@@ -273,8 +277,14 @@ export function ReviewScreen() {
     enabled: mode === "spend",
   });
 
-  const spendEntries = Array.isArray(spendQuery.data) ? spendQuery.data : [];
-  const incomeEntries = Array.isArray(incomeQuery.data) ? incomeQuery.data : [];
+  const spendEntries = useMemo(
+    () => (Array.isArray(spendQuery.data) ? spendQuery.data : []),
+    [spendQuery.data]
+  );
+  const incomeEntries = useMemo(
+    () => (Array.isArray(incomeQuery.data) ? incomeQuery.data : []),
+    [incomeQuery.data]
+  );
   const entryCount =
     mode === "spend" ? spendEntries.length : incomeEntries.length;
   const isLoading =
@@ -309,9 +319,12 @@ export function ReviewScreen() {
 
   const updateTransaction = trpc.transactions.update.useMutation({
     onSuccess: async () => {
-      await utils.transactions.list.invalidate();
-      await utils.transactions.summary.invalidate();
-      await utils.transactions.merchantOptions.invalidate();
+      await Promise.all([
+        utils.transactions.list.invalidate(),
+        utils.transactions.summary.invalidate(),
+        utils.transactions.merchantOptions.invalidate(),
+        utils.dashboard.invalidate(),
+      ]);
       setSpendEditingId(null);
     },
   });
@@ -322,53 +335,53 @@ export function ReviewScreen() {
 
   const deleteTransaction = trpc.transactions.delete.useMutation({
     onSuccess: async () => {
-      await utils.transactions.list.invalidate();
-      await utils.transactions.summary.invalidate();
-      await utils.transactions.merchantOptions.invalidate();
+      await Promise.all([
+        utils.transactions.list.invalidate(),
+        utils.transactions.summary.invalidate(),
+        utils.transactions.merchantOptions.invalidate(),
+        utils.dashboard.invalidate(),
+      ]);
     },
   });
 
   const updateIncome = trpc.income.update.useMutation({
     onSuccess: async () => {
-      await utils.income.list.invalidate();
-      await utils.income.sourceOptions.invalidate();
+      await Promise.all([
+        utils.income.list.invalidate(),
+        utils.income.summary.invalidate(),
+        utils.income.sourceOptions.invalidate(),
+        utils.dashboard.invalidate(),
+      ]);
       setIncomeEditingId(null);
     },
   });
 
   const deleteIncome = trpc.income.delete.useMutation({
     onSuccess: async () => {
-      await utils.income.list.invalidate();
-      await utils.income.sourceOptions.invalidate();
+      await Promise.all([
+        utils.income.list.invalidate(),
+        utils.income.summary.invalidate(),
+        utils.income.sourceOptions.invalidate(),
+        utils.dashboard.invalidate(),
+      ]);
     },
   });
 
-  useEffect(() => {
+  const resetPagination = () => {
     setSpendTake(60);
-  }, [
-    categoryId,
-    fromDate,
-    includeUntagged,
-    maxNetInput,
-    minNetInput,
-    paymentMethodId,
-    selectedTagIds,
-    searchValue,
-    toDate,
-  ]);
-
-  useEffect(() => {
     setIncomeTake(60);
-  }, [cardId, fromDate, searchValue, toDate]);
+  };
 
-  useEffect(() => {
+  const changeMode = (nextMode: "spend" | "income") => {
+    setMode(nextMode);
     setSpendEditingId(null);
     setIncomeEditingId(null);
     setSpendEditError(null);
     setIncomeEditError(null);
-  }, [mode]);
+  };
 
   const applyMonthSelection = (value: string) => {
+    resetPagination();
     setSelectedMonth(value);
     if (!value) {
       return; // "Custom range" — leave From/To as-is for manual editing.
@@ -385,6 +398,7 @@ export function ReviewScreen() {
   };
 
   const resetFilters = () => {
+    resetPagination();
     setFromDate(defaultFromDate());
     setToDate(defaultToDate());
     setSelectedMonth(currentMonthValue());
@@ -410,6 +424,10 @@ export function ReviewScreen() {
     netCents: 0,
     count: 0,
   };
+  const summaryPending =
+    mode === "spend"
+      ? spendSummaryQuery.isLoading || spendSummaryQuery.isError
+      : incomeSummaryQuery.isLoading || incomeSummaryQuery.isError;
 
   const spendGroups = useMemo(
     () => groupByDate(spendEntries, (item) => item.date, (item) => item.netCents),
@@ -438,6 +456,15 @@ export function ReviewScreen() {
     selectedCount === 0 || allTagsSelected
       ? "All entries"
       : `${selectedCount} selected`;
+  const advancedFilterCount = countAdvancedReviewFilters({
+    customRange: selectedMonth === "",
+    categoryId,
+    paymentMethodId,
+    cardId,
+    minAmount: minNetInput,
+    maxAmount: maxNetInput,
+    tagCount: selectedCount,
+  });
 
   const loadMore = () => {
     if (mode === "spend") {
@@ -628,9 +655,9 @@ export function ReviewScreen() {
   };
 
   return (
-    <section className="rounded-3xl border border-zinc-200 bg-white/95 p-6 shadow-sm">
+    <section className="surface-panel p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-2 rounded-full bg-zinc-100 p-1 text-sm">
+        <div className="flex items-center gap-2 rounded-full bg-surface-soft p-1 text-sm">
           {[
             { id: "spend", label: "Spend" },
             { id: "income", label: "Income" },
@@ -640,11 +667,11 @@ export function ReviewScreen() {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setMode(item.id as "spend" | "income")}
+                onClick={() => changeMode(item.id as "spend" | "income")}
                 className={`rounded-full px-4 py-2 text-sm font-medium transition ${
                   isActive
-                    ? "bg-white text-zinc-900 shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-900"
+                    ? "bg-white text-ink shadow-sm"
+                    : "text-muted hover:text-ink"
                 }`}
               >
                 {item.label}
@@ -652,234 +679,165 @@ export function ReviewScreen() {
             );
           })}
         </div>
-        <p className="text-sm text-zinc-500">{entryCount} entries</p>
+        <p className="text-sm text-muted">{entryCount} entries</p>
       </div>
 
-      <div className="mt-6 rounded-2xl border border-zinc-100 bg-zinc-50/60 p-4">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="md:col-span-2">
-            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-              Search
-            </label>
+      <div className="mt-6 border-y border-line py-4">
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.6fr)]">
+          <div>
+            <label className="text-sm font-medium text-ink-soft">Search</label>
             <input
-              className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
-              placeholder={
-                mode === "spend"
-                  ? "Merchant or notes"
-                  : "Description or source"
-              }
+              aria-label="Search entries"
+              className="mt-2 w-full rounded-xl border border-line bg-surface px-4 py-2 text-base transition focus:border-accent"
+              placeholder={mode === "spend" ? "Merchant or notes" : "Description or source"}
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-              Month
-            </label>
-            <MonthYearPicker
-              value={selectedMonth}
-              groups={monthGroups}
-              onSelect={applyMonthSelection}
-            />
-          </div>
-
-          <div>
-            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-              From
-            </label>
-            <input
-              type="date"
-              className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900"
-              value={fromDate}
               onChange={(event) => {
-                setFromDate(event.target.value);
-                setSelectedMonth("");
+                setSearch(event.target.value);
+                resetPagination();
               }}
             />
           </div>
           <div>
-            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-              To
-            </label>
-            <input
-              type="date"
-              className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900"
-              value={toDate}
-              onChange={(event) => {
-                setToDate(event.target.value);
-                setSelectedMonth("");
-              }}
-            />
+            <label className="text-sm font-medium text-ink-soft">Month</label>
+            <MonthYearPicker value={selectedMonth} groups={monthGroups} onSelect={applyMonthSelection} />
           </div>
-
-          {mode === "spend" ? (
-            <>
-              <div>
-                <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                  Category
-                </label>
-                <select
-                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900"
-                  value={categoryId}
-                  onChange={(event) => setCategoryId(event.target.value)}
-                >
-                  <option value="">All categories</option>
-                  {categories.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                  Payment
-                </label>
-                <select
-                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900"
-                  value={paymentMethodId}
-                  onChange={(event) => setPaymentMethodId(event.target.value)}
-                >
-                  <option value="">All methods</option>
-                  {paymentMethods.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                  Min amount
-                </label>
-                <input
-                  inputMode="numeric"
-                  className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-sm outline-none transition focus:border-zinc-900"
-                  placeholder="0"
-                  value={formatDigits(minNetInput)}
-                  onChange={(event) =>
-                    setMinNetInput(sanitizeNumber(event.target.value))
-                  }
-                />
-              </div>
-              <div>
-                <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                  Max amount
-                </label>
-                <input
-                  inputMode="numeric"
-                  className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-sm outline-none transition focus:border-zinc-900"
-                  placeholder="0"
-                  value={formatDigits(maxNetInput)}
-                  onChange={(event) =>
-                    setMaxNetInput(sanitizeNumber(event.target.value))
-                  }
-                />
-              </div>
-              <div className="md:col-span-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                    Tags
-                  </label>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setTagSheetOpen(true)}
-                  className="mt-2 flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 transition hover:border-zinc-300"
-                >
-                  <span>{tagSummary}</span>
-                  <span className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                    Edit
-                  </span>
-                </button>
-              </div>
-            </>
-          ) : (
-            <div>
-              <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                Card
-              </label>
-              <select
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900"
-                value={cardId}
-                onChange={(event) => setCardId(event.target.value)}
-              >
-                <option value="">All cards</option>
-                {cards.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
         </div>
 
-        <div className="mt-4 flex justify-end">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
           <button
             type="button"
-            className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-400 transition hover:text-zinc-900"
-            onClick={resetFilters}
+            aria-expanded={advancedOpen}
+            aria-controls="review-advanced-filters"
+            onClick={() => setAdvancedOpen((open) => !open)}
+            className="rounded-lg px-3 text-sm font-medium text-muted transition hover:bg-surface-soft hover:text-ink"
           >
-            Reset
+            Advanced{advancedFilterCount ? ` · ${advancedFilterCount}` : ""}
           </button>
+          {advancedFilterCount ? (
+            <button type="button" onClick={resetFilters} className="rounded-lg px-3 text-sm font-medium text-muted transition hover:bg-surface-soft hover:text-ink">
+              Reset
+            </button>
+          ) : null}
         </div>
+
+        {advancedOpen ? (
+          <div id="review-advanced-filters" className="mt-4 grid gap-4 border-t border-line pt-4 md:grid-cols-2">
+            <ReviewFilterField label="From">
+              <input
+                type="date"
+                aria-label="From date"
+                className="mt-2 w-full rounded-xl border border-line px-4 py-2 text-base text-ink transition focus:border-accent"
+                value={fromDate}
+                onChange={(event) => {
+                  setFromDate(event.target.value);
+                  setSelectedMonth("");
+                  resetPagination();
+                }}
+              />
+            </ReviewFilterField>
+            <ReviewFilterField label="To">
+              <input
+                type="date"
+                aria-label="To date"
+                className="mt-2 w-full rounded-xl border border-line px-4 py-2 text-base text-ink transition focus:border-accent"
+                value={toDate}
+                onChange={(event) => {
+                  setToDate(event.target.value);
+                  setSelectedMonth("");
+                  resetPagination();
+                }}
+              />
+            </ReviewFilterField>
+
+            {mode === "spend" ? (
+              <>
+                <ReviewFilterField label="Category">
+                  <select aria-label="Category" className="mt-2 w-full rounded-xl border border-line bg-surface px-4 py-2 text-base text-ink focus:border-accent" value={categoryId} onChange={(event) => { setCategoryId(event.target.value); resetPagination(); }}>
+                    <option value="">All categories</option>
+                    {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                </ReviewFilterField>
+                <ReviewFilterField label="Payment">
+                  <select aria-label="Payment method" className="mt-2 w-full rounded-xl border border-line bg-surface px-4 py-2 text-base text-ink focus:border-accent" value={paymentMethodId} onChange={(event) => { setPaymentMethodId(event.target.value); resetPagination(); }}>
+                    <option value="">All methods</option>
+                    {paymentMethods.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                </ReviewFilterField>
+                <ReviewFilterField label="Min amount">
+                  <input inputMode="numeric" aria-label="Minimum amount" className="mt-2 w-full rounded-xl border border-line px-4 py-2 text-base focus:border-accent" placeholder="0" value={formatDigits(minNetInput)} onChange={(event) => { setMinNetInput(sanitizeNumber(event.target.value)); resetPagination(); }} />
+                </ReviewFilterField>
+                <ReviewFilterField label="Max amount">
+                  <input inputMode="numeric" aria-label="Maximum amount" className="mt-2 w-full rounded-xl border border-line px-4 py-2 text-base focus:border-accent" placeholder="0" value={formatDigits(maxNetInput)} onChange={(event) => { setMaxNetInput(sanitizeNumber(event.target.value)); resetPagination(); }} />
+                </ReviewFilterField>
+                <ReviewFilterField label="Tags" className="md:col-span-2">
+                  <button type="button" onClick={() => setTagSheetOpen(true)} className="mt-2 flex w-full items-center justify-between rounded-xl border border-line bg-surface px-4 py-2 text-sm text-ink transition hover:border-line-strong">
+                    <span>{tagSummary}</span><span className="text-sm text-muted">Choose</span>
+                  </button>
+                </ReviewFilterField>
+              </>
+            ) : (
+              <ReviewFilterField label="Card">
+                <select aria-label="Card" className="mt-2 w-full rounded-xl border border-line bg-surface px-4 py-2 text-base text-ink focus:border-accent" value={cardId} onChange={(event) => { setCardId(event.target.value); resetPagination(); }}>
+                  <option value="">All cards</option>
+                  {cards.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </ReviewFilterField>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {mode === "spend" ? (
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           {[
-            { label: "Gross", value: summary.grossCents, color: "#111827" },
-            { label: "Saved", value: summary.discountCents, color: "#16a34a" },
-            { label: "Net", value: summary.netCents, color: "#111827" },
+            { label: "Gross", value: summary.grossCents, tone: "text-ink" },
+            { label: "Saved", value: summary.discountCents, tone: "text-income" },
+            { label: "Paid", value: summary.netCents, tone: "text-ink" },
           ].map((item) => (
             <div
               key={item.label}
-              className="rounded-2xl border border-zinc-100 bg-zinc-50/60 px-4 py-3"
+              className="rounded-xl bg-surface-soft/65 px-4 py-3"
             >
-              <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+              <p className="text-xs uppercase tracking-[0.2em] text-muted">
                 {item.label}
               </p>
-              <p className="mt-1 text-lg font-semibold" style={{ color: item.color }}>
-                ₩{formatter.format(item.value)}
+              <p className={`financial-number mt-1 text-lg font-semibold ${item.tone}`}>
+                {summaryPending ? "₩—" : `₩${formatter.format(item.value)}`}
               </p>
             </div>
           ))}
         </div>
       ) : (
         <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <div className="rounded-2xl border border-zinc-100 bg-zinc-50/60 px-4 py-3">
-            <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+          <div className="rounded-xl bg-surface-soft/65 px-4 py-3">
+            <p className="text-xs uppercase tracking-[0.2em] text-muted">
               Revenue
             </p>
             <p
-              className="mt-1 text-lg font-semibold"
-              style={{ color: "#16a34a" }}
+              className="financial-number mt-1 text-lg font-semibold text-income"
             >
-              ₩{formatter.format(incomeSummary.revenueCents)}
+              {summaryPending ? "₩—" : `₩${formatter.format(incomeSummary.revenueCents)}`}
             </p>
           </div>
-          <div className="rounded-2xl border border-zinc-100 bg-zinc-50/60 px-4 py-3">
-            <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+          <div className="rounded-xl bg-surface-soft/65 px-4 py-3">
+            <p className="text-xs uppercase tracking-[0.2em] text-muted">
               Cost
             </p>
             <p
-              className="mt-1 text-lg font-semibold"
-              style={{ color: "#f43f5e" }}
+              className="financial-number mt-1 text-lg font-semibold text-expense"
             >
-              ₩{formatter.format(incomeSummary.costCents)}
+              {summaryPending ? "₩—" : `₩${formatter.format(incomeSummary.costCents)}`}
             </p>
           </div>
-          <div className="rounded-2xl border border-zinc-100 bg-zinc-50/60 px-4 py-3">
-            <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+          <div className="rounded-xl bg-surface-soft/65 px-4 py-3">
+            <p className="text-xs uppercase tracking-[0.2em] text-muted">
               Net
             </p>
             <p
-              className="mt-1 text-lg font-semibold"
+              className="financial-number mt-1 text-lg font-semibold"
               style={{ color: formatSignedAmount(incomeSummary.netCents).color }}
             >
-              {formatSignedAmount(incomeSummary.netCents).label}
+              {summaryPending ? "₩—" : formatSignedAmount(incomeSummary.netCents).label}
             </p>
           </div>
         </div>
@@ -887,44 +845,40 @@ export function ReviewScreen() {
 
       <div className="mt-6 space-y-3">
         {isLoading ? (
-          <p className="text-sm text-zinc-500">Loading entries...</p>
+          <p className="text-sm text-muted">Loading entries...</p>
         ) : error ? (
-          <p className="text-sm text-red-600">{errorMessage}</p>
+          <div role="alert" className="flex items-center justify-between gap-3 rounded-xl bg-danger/5 px-4 py-3">
+            <p className="text-sm text-danger">{errorMessage}</p>
+            <button
+              type="button"
+              onClick={() => void (mode === "spend" ? spendQuery.refetch() : incomeQuery.refetch())}
+              className="rounded-lg px-3 text-sm font-semibold text-danger hover:bg-white"
+            >
+              Retry
+            </button>
+          </div>
         ) : entryCount === 0 ? (
-          <p className="text-sm text-zinc-500">{emptyMessage}</p>
+          <p className="text-sm text-muted">{emptyMessage}</p>
         ) : mode === "spend" ? (
           spendGroups.map((group) => (
             <div key={group.date} className="space-y-3">
-              <div className="flex items-center justify-between px-1 text-xs uppercase tracking-[0.2em] text-zinc-400">
+              <div className="flex items-center justify-between px-1 text-xs uppercase tracking-[0.2em] text-muted">
                 <span>{formatShortDateString(group.date)}</span>
-                <span className="text-sm font-semibold text-zinc-900">
+                <span className="text-sm font-semibold text-ink">
                   ₩{formatter.format(group.total)}
                 </span>
               </div>
               {group.entries.map((item) => {
                 const isEditing = spendEditingId === item.id;
                 return (
-                  <div
+                  <article
                     key={item.id}
-                    role="button"
-                    tabIndex={0}
-                    aria-expanded={isEditing}
-                    onClick={() => toggleSpendEdit(item)}
-                    onKeyDown={(event) => {
-                      if (event.target !== event.currentTarget) {
-                        return;
-                      }
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        toggleSpendEdit(item);
-                      }
-                    }}
-                    className="cursor-pointer rounded-2xl border border-zinc-100 bg-zinc-50/60 px-4 py-3 transition hover:border-zinc-200"
+                    className="rounded-2xl border border-line bg-surface px-4 py-3 transition hover:border-line-strong"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-4">
                       <div>
                         <div className="flex items-center gap-1.5">
-                          <p className="text-sm font-semibold text-zinc-900">
+                          <p className="text-sm font-semibold text-ink">
                             {item.merchant || "Untitled purchase"}
                           </p>
                           {item.recurringRuleId ? (
@@ -934,41 +888,46 @@ export function ReviewScreen() {
                             />
                           ) : null}
                         </div>
-                        <p className="text-xs text-zinc-500">
+                        <p className="text-xs text-muted">
                           {formatShortDate(item.date)} ·{" "}
                           {item.category?.name ?? "Uncategorized"} ·{" "}
                           {item.paymentMethod?.name ?? "Unknown payment"}
                         </p>
                         {item.notes ? (
-                          <p className="mt-0.5 text-xs text-zinc-400 italic">
+                          <p className="mt-0.5 text-xs text-muted italic">
                             {item.notes}
                           </p>
                         ) : null}
                       </div>
-                      <div className="text-right">
-                        <p className="text-lg font-semibold text-zinc-900">
-                          ₩{formatter.format(item.netCents)}
-                        </p>
-                        {item.discountCents > 0 ? (
-                          <p className="text-xs text-zinc-500">
-                            Saved ₩{formatter.format(item.discountCents)}
-                          </p>
-                        ) : null}
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="financial-number text-lg font-semibold text-ink">₩{formatter.format(item.netCents)}</p>
+                          {item.discountCents > 0 ? <p className="text-xs text-muted">Saved ₩{formatter.format(item.discountCents)}</p> : null}
+                        </div>
+                        <button
+                          type="button"
+                          aria-expanded={isEditing}
+                          onClick={() => toggleSpendEdit(item)}
+                          className="rounded-lg border border-line px-3 text-sm font-medium text-muted transition hover:border-line-strong hover:text-ink"
+                        >
+                          {isEditing ? "Close" : "Edit"}
+                        </button>
                       </div>
                     </div>
                     {isEditing ? (
                       <div
-                        className="mt-4 border-t border-zinc-200 pt-4"
+                        className="mt-4 border-t border-line pt-4"
                         onClick={(event) => event.stopPropagation()}
                         role="presentation"
                       >
                         <div className="grid gap-3 md:grid-cols-3">
                           <div className="md:col-span-2">
-                            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                            <label className="text-xs uppercase tracking-[0.2em] text-muted">
                               Merchant
                             </label>
                             <input
-                              className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+                              aria-label="Merchant"
+                              className="mt-2 w-full rounded-2xl border border-line px-4 py-2 text-base transition focus:border-accent sm:text-sm"
                               value={spendDraft.merchant}
                               onChange={(event) =>
                                 setSpendDraft((prev) => ({
@@ -979,12 +938,13 @@ export function ReviewScreen() {
                             />
                           </div>
                           <div>
-                            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                            <label className="text-xs uppercase tracking-[0.2em] text-muted">
                               Date
                             </label>
                             <input
                               type="date"
-                              className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+                              aria-label="Date"
+                              className="mt-2 w-full rounded-2xl border border-line px-4 py-2 text-base transition focus:border-accent sm:text-sm"
                               value={spendDraft.date}
                               onChange={(event) =>
                                 setSpendDraft((prev) => ({
@@ -995,12 +955,13 @@ export function ReviewScreen() {
                             />
                           </div>
                           <div>
-                            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                            <label className="text-xs uppercase tracking-[0.2em] text-muted">
                               Amount
                             </label>
                             <input
                               inputMode="numeric"
-                              className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+                              aria-label="Amount"
+                              className="mt-2 w-full rounded-2xl border border-line px-4 py-2 text-base transition focus:border-accent sm:text-sm"
                               value={formatDigits(spendDraft.gross)}
                               onChange={(event) =>
                                 setSpendDraft((prev) => ({
@@ -1026,11 +987,12 @@ export function ReviewScreen() {
                           />
                           <div className="grid gap-3 md:col-span-3 md:grid-cols-2">
                             <div>
-                              <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                              <label className="text-xs uppercase tracking-[0.2em] text-muted">
                                 Category
                               </label>
                               <select
-                                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900"
+                                aria-label="Category"
+                                className="mt-2 w-full rounded-2xl border border-line bg-white px-4 py-2 text-sm text-ink transition focus:border-accent"
                                 value={spendDraft.categoryId}
                                 onChange={(event) =>
                                   setSpendDraft((prev) => ({
@@ -1048,11 +1010,12 @@ export function ReviewScreen() {
                               </select>
                             </div>
                             <div>
-                              <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                              <label className="text-xs uppercase tracking-[0.2em] text-muted">
                                 Payment Method
                               </label>
                               <select
-                                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
+                                aria-label="Payment method"
+                                className="mt-2 w-full rounded-2xl border border-line bg-white px-4 py-2 text-sm text-ink transition focus:border-accent disabled:cursor-not-allowed disabled:bg-surface-soft disabled:text-muted"
                                 value={spendDraft.paymentMethodId}
                                 disabled={paymentMethodsQuery.isLoading}
                                 onChange={(event) =>
@@ -1075,11 +1038,12 @@ export function ReviewScreen() {
                             </div>
                           </div>
                           <div className="md:col-span-3">
-                            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                            <label className="text-xs uppercase tracking-[0.2em] text-muted">
                               Notes
                             </label>
                             <input
-                              className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+                              aria-label="Notes"
+                              className="mt-2 w-full rounded-2xl border border-line px-4 py-2 text-base transition focus:border-accent sm:text-sm"
                               placeholder="Optional"
                               value={spendDraft.notes}
                               onChange={(event) =>
@@ -1091,16 +1055,17 @@ export function ReviewScreen() {
                             />
                           </div>
                           <div className="md:col-span-3">
-                            <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                            <label className="text-xs uppercase tracking-[0.2em] text-muted">
                               Tags
                             </label>
                             <button
                               type="button"
+                              aria-label="Edit tags"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 setSpendEditTagSheetOpen(true);
                               }}
-                              className="mt-2 flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 transition hover:border-zinc-300"
+                              className="mt-2 flex w-full items-center justify-between rounded-2xl border border-line bg-white px-4 py-2 text-sm text-ink transition hover:border-line-strong"
                             >
                               <span>
                                 {spendDraft.tagIds.length === 0
@@ -1110,73 +1075,42 @@ export function ReviewScreen() {
                                       .map((t) => t.name)
                                       .join(", ")}
                               </span>
-                              <span className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                              <span className="text-xs uppercase tracking-[0.2em] text-muted">
                                 Edit
                               </span>
                             </button>
                           </div>
                         </div>
                         {spendEditError ? (
-                          <p className="mt-3 text-sm text-red-600">
+                          <p role="alert" className="mt-3 text-sm text-danger">
                             {spendEditError}
                           </p>
                         ) : null}
-                        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                        <div className="sticky bottom-2 z-10 mt-4 flex items-center justify-end gap-2 rounded-xl border border-line bg-surface/95 p-2 shadow-[0_10px_24px_rgba(24,33,28,0.12)]">
+                          <EntryActionMenu
+                            onDuplicate={() => handleSpendDuplicate(item)}
+                            onRepeat={() => handleSpendRepeat(item)}
+                            onDelete={() => void handleSpendDelete(item.id)}
+                          />
                           <button
                             type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleSpendDuplicate(item);
-                            }}
-                            className="rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
-                          >
-                            Duplicate
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleSpendRepeat(item);
-                            }}
-                            className="mr-auto rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
-                          >
-                            Repeat…
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setSpendEditingId(null);
-                            }}
-                            className="rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
+                            onClick={() => setSpendEditingId(null)}
+                            className="rounded-lg border border-line px-4 py-2 text-sm font-semibold text-muted transition hover:border-line-strong hover:text-ink"
                           >
                             Cancel
                           </button>
                           <button
                             type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleSpendDelete(item.id);
-                            }}
-                            className="rounded-full border border-rose-200 px-4 py-2 text-xs font-semibold text-rose-600 transition hover:border-rose-300"
-                          >
-                            Delete
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void handleSpendSave(item.id);
-                            }}
+                            onClick={() => void handleSpendSave(item.id)}
                             disabled={updateTransaction.isPending}
-                            className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent-strong disabled:bg-muted"
                           >
-                            Save
+                            {updateTransaction.isPending ? "Saving…" : "Save"}
                           </button>
                         </div>
                       </div>
                     ) : null}
-                  </div>
+                  </article>
                 );
               })}
             </div>
@@ -1186,7 +1120,7 @@ export function ReviewScreen() {
             const total = formatSignedAmount(group.total);
             return (
               <div key={group.date} className="space-y-3">
-                <div className="flex items-center justify-between px-1 text-xs uppercase tracking-[0.2em] text-zinc-400">
+                <div className="flex items-center justify-between px-1 text-xs uppercase tracking-[0.2em] text-muted">
                   <span>{formatShortDateString(group.date)}</span>
                   <span className="text-sm font-semibold" style={{ color: total.color }}>
                     {total.label}
@@ -1203,27 +1137,14 @@ export function ReviewScreen() {
                   const revenueLabel = `+₩${formatter.format(item.revenueCents)}`;
                   const costLabel = `-₩${formatter.format(item.costCents)}`;
                   return (
-                    <div
+                    <article
                       key={item.id}
-                      role="button"
-                      tabIndex={0}
-                      aria-expanded={isEditing}
-                      onClick={() => toggleIncomeEdit(item)}
-                      onKeyDown={(event) => {
-                        if (event.target !== event.currentTarget) {
-                          return;
-                        }
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          toggleIncomeEdit(item);
-                        }
-                      }}
-                      className="cursor-pointer rounded-2xl border border-zinc-100 bg-zinc-50/60 px-4 py-3 transition hover:border-zinc-200"
+                      className="rounded-2xl border border-line bg-surface px-4 py-3 transition hover:border-line-strong"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-4">
                         <div>
                           <div className="flex items-center gap-1.5">
-                            <p className="text-sm font-semibold text-zinc-900">
+                            <p className="text-sm font-semibold text-ink">
                               {item.description}
                             </p>
                             {item.recurringRuleId ? (
@@ -1233,17 +1154,12 @@ export function ReviewScreen() {
                               />
                             ) : null}
                           </div>
-                          <p className="text-xs text-zinc-500">{metaLabel}</p>
+                          <p className="text-xs text-muted">{metaLabel}</p>
                         </div>
-                        <div className="text-right">
-                          <p
-                            className="text-lg font-semibold"
-                            style={{ color: netAmount.color }}
-                          >
-                            {netAmount.label}
-                          </p>
-                          {item.costCents > 0 ? (
-                            <p className="text-xs text-zinc-400">
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <p className="financial-number text-lg font-semibold" style={{ color: netAmount.color }}>{netAmount.label}</p>
+                            {item.costCents > 0 ? <p className="text-xs text-muted">
                               <span style={{ color: "rgba(22, 163, 74, 0.8)" }}>
                                 {revenueLabel}
                               </span>
@@ -1251,23 +1167,32 @@ export function ReviewScreen() {
                               <span style={{ color: "rgba(244, 63, 94, 0.8)" }}>
                                 {costLabel}
                               </span>
-                            </p>
-                          ) : null}
+                            </p> : null}
+                          </div>
+                          <button
+                            type="button"
+                            aria-expanded={isEditing}
+                            onClick={() => toggleIncomeEdit(item)}
+                            className="rounded-lg border border-line px-3 text-sm font-medium text-muted transition hover:border-line-strong hover:text-ink"
+                          >
+                            {isEditing ? "Close" : "Edit"}
+                          </button>
                         </div>
                       </div>
                       {isEditing ? (
                         <div
-                          className="mt-4 border-t border-zinc-200 pt-4"
+                          className="mt-4 border-t border-line pt-4"
                           onClick={(event) => event.stopPropagation()}
                           role="presentation"
                         >
                           <div className="grid gap-3 md:grid-cols-2">
                             <div className="md:col-span-2">
-                              <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                              <label className="text-xs uppercase tracking-[0.2em] text-muted">
                                 Description
                               </label>
                               <input
-                                className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+                                aria-label="Description"
+                                className="mt-2 w-full rounded-2xl border border-line px-4 py-2 text-base transition focus:border-accent sm:text-sm"
                                 value={incomeDraft.description}
                                 onChange={(event) =>
                                   setIncomeDraft((prev) => ({
@@ -1278,12 +1203,13 @@ export function ReviewScreen() {
                               />
                             </div>
                             <div>
-                              <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                              <label className="text-xs uppercase tracking-[0.2em] text-muted">
                                 Date
                               </label>
                               <input
                                 type="date"
-                                className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+                                aria-label="Date"
+                                className="mt-2 w-full rounded-2xl border border-line px-4 py-2 text-base transition focus:border-accent sm:text-sm"
                                 value={incomeDraft.date}
                                 onChange={(event) =>
                                   setIncomeDraft((prev) => ({
@@ -1294,12 +1220,13 @@ export function ReviewScreen() {
                               />
                             </div>
                             <div>
-                              <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                              <label className="text-xs uppercase tracking-[0.2em] text-muted">
                                 Revenue
                               </label>
                               <input
                                 inputMode="numeric"
-                                className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+                                aria-label="Revenue"
+                                className="mt-2 w-full rounded-2xl border border-line px-4 py-2 text-base transition focus:border-accent sm:text-sm"
                                 value={formatDigits(incomeDraft.revenue)}
                                 onChange={(event) =>
                                   setIncomeDraft((prev) => ({
@@ -1310,12 +1237,13 @@ export function ReviewScreen() {
                               />
                             </div>
                             <div>
-                              <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                              <label className="text-xs uppercase tracking-[0.2em] text-muted">
                                 Cost
                               </label>
                               <input
                                 inputMode="numeric"
-                                className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+                                aria-label="Cost"
+                                className="mt-2 w-full rounded-2xl border border-line px-4 py-2 text-base transition focus:border-accent sm:text-sm"
                                 value={formatDigits(incomeDraft.cost)}
                                 onChange={(event) =>
                                   setIncomeDraft((prev) => ({
@@ -1326,11 +1254,12 @@ export function ReviewScreen() {
                               />
                             </div>
                             <div className="md:col-span-2">
-                              <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                              <label className="text-xs uppercase tracking-[0.2em] text-muted">
                                 Card
                               </label>
                               <select
-                                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900"
+                                aria-label="Card"
+                                className="mt-2 w-full rounded-2xl border border-line bg-white px-4 py-2 text-sm text-ink transition focus:border-accent"
                                 value={incomeDraft.cardId}
                                 onChange={(event) =>
                                   setIncomeDraft((prev) => ({
@@ -1349,66 +1278,35 @@ export function ReviewScreen() {
                             </div>
                           </div>
                           {incomeEditError ? (
-                            <p className="mt-3 text-sm text-red-600">
+                            <p role="alert" className="mt-3 text-sm text-danger">
                               {incomeEditError}
                             </p>
                           ) : null}
-                          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                          <div className="sticky bottom-2 z-10 mt-4 flex items-center justify-end gap-2 rounded-xl border border-line bg-surface/95 p-2 shadow-[0_10px_24px_rgba(24,33,28,0.12)]">
+                            <EntryActionMenu
+                              onDuplicate={() => handleIncomeDuplicate(item)}
+                              onRepeat={() => handleIncomeRepeat(item)}
+                              onDelete={() => void handleIncomeDelete(item.id)}
+                            />
                             <button
                               type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleIncomeDuplicate(item);
-                              }}
-                              className="rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
-                            >
-                              Duplicate
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleIncomeRepeat(item);
-                              }}
-                              className="mr-auto rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
-                            >
-                              Repeat…
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setIncomeEditingId(null);
-                              }}
-                              className="rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
+                              onClick={() => setIncomeEditingId(null)}
+                              className="rounded-lg border border-line px-4 py-2 text-sm font-semibold text-muted transition hover:border-line-strong hover:text-ink"
                             >
                               Cancel
                             </button>
                             <button
                               type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void handleIncomeDelete(item.id);
-                              }}
-                              className="rounded-full border border-rose-200 px-4 py-2 text-xs font-semibold text-rose-600 transition hover:border-rose-300"
-                            >
-                              Delete
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void handleIncomeSave(item.id);
-                              }}
+                              onClick={() => void handleIncomeSave(item.id)}
                               disabled={updateIncome.isPending}
-                              className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                              className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent-strong disabled:bg-muted"
                             >
-                              Save
+                              {updateIncome.isPending ? "Saving…" : "Save"}
                             </button>
                           </div>
                         </div>
                       ) : null}
-                    </div>
+                    </article>
                   );
                 })}
               </div>
@@ -1422,7 +1320,7 @@ export function ReviewScreen() {
           <button
             type="button"
             onClick={loadMore}
-            className="rounded-full border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:text-zinc-900"
+            className="rounded-full border border-line px-4 py-2 text-sm font-medium text-ink-soft transition hover:text-ink"
           >
             Load more
           </button>
@@ -1441,6 +1339,7 @@ export function ReviewScreen() {
         }
         onClose={() => setTagSheetOpen(false)}
         onToggle={(id) => {
+          resetPagination();
           if (id === "untagged") {
             setIncludeUntagged((prev) => !prev);
             return;
@@ -1450,6 +1349,7 @@ export function ReviewScreen() {
           );
         }}
         onClear={() => {
+          resetPagination();
           setSelectedTagIds([]);
           setIncludeUntagged(false);
         }}
@@ -1478,6 +1378,52 @@ export function ReviewScreen() {
   );
 }
 
+function ReviewFilterField({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={className}>
+      <p className="text-sm font-medium text-ink-soft">{label}</p>
+      {children}
+    </div>
+  );
+}
+
+function EntryActionMenu({
+  onDuplicate,
+  onRepeat,
+  onDelete,
+}: {
+  onDuplicate: () => void;
+  onRepeat: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <details className="group relative mr-auto">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center rounded-lg border border-line px-4 text-sm font-semibold text-muted transition hover:border-line-strong hover:text-ink">
+        More
+      </summary>
+      <div className="absolute bottom-full left-0 z-20 mb-2 min-w-40 rounded-xl border border-line bg-surface p-1 shadow-lg">
+        <button type="button" onClick={onDuplicate} className="w-full rounded-lg px-3 py-2 text-left text-sm text-ink-soft hover:bg-surface-soft">
+          Duplicate
+        </button>
+        <button type="button" onClick={onRepeat} className="w-full rounded-lg px-3 py-2 text-left text-sm text-ink-soft hover:bg-surface-soft">
+          Repeat
+        </button>
+        <button type="button" onClick={onDelete} className="w-full rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-danger/5">
+          Delete
+        </button>
+      </div>
+    </details>
+  );
+}
+
 function RecurringBadge({
   ruleId,
   router,
@@ -1494,7 +1440,7 @@ function RecurringBadge({
         event.stopPropagation();
         router.push(`/recurring?rule=${ruleId}`);
       }}
-      className="text-zinc-400 transition hover:text-zinc-900"
+      className="text-muted transition hover:text-ink"
     >
       <svg
         aria-hidden="true"

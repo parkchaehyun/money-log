@@ -62,7 +62,10 @@ export function RecurringDue() {
       await Promise.all([
         utils.transactions.list.invalidate(),
         utils.transactions.summary.invalidate(),
+        utils.transactions.merchantOptions.invalidate(),
         utils.income.list.invalidate(),
+        utils.income.summary.invalidate(),
+        utils.income.sourceOptions.invalidate(),
         utils.dashboard.invalidate(),
       ]);
     }
@@ -75,21 +78,30 @@ export function RecurringDue() {
     onSuccess: () => invalidateAfterChange(false),
   });
 
+  if (pendingQuery.isError) {
+    return (
+      <section className="rounded-2xl bg-danger/5 p-4" role="alert">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-danger">Couldn’t load recurring entries.</p>
+          <button type="button" onClick={() => void pendingQuery.refetch()} className="rounded-lg px-3 text-sm font-semibold text-danger hover:bg-white">Retry</button>
+        </div>
+      </section>
+    );
+  }
+
   const items = pendingQuery.data ?? [];
   if (items.length === 0) {
     return null;
   }
 
-  const busy = confirm.isPending || skip.isPending;
-
   return (
-    <section className="rounded-3xl border border-amber-200 bg-amber-50/60 p-5 shadow-sm">
+    <section className="rounded-2xl border border-warning/25 bg-warning/5 p-4 sm:p-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-zinc-900">
+        <h2 className="text-sm font-semibold text-ink">
           Due now
-          <span className="ml-2 text-zinc-400">{items.length}</span>
+          <span className="ml-2 text-muted">{items.length}</span>
         </h2>
-        <span className="text-xs uppercase tracking-[0.2em] text-amber-600">
+        <span className="text-xs uppercase tracking-[0.2em] text-warning">
           Recurring
         </span>
       </div>
@@ -102,9 +114,22 @@ export function RecurringDue() {
             categories={categories}
             paymentMethods={paymentMethods}
             cards={cards}
-            busy={busy}
+            busy={confirm.isPending || skip.isPending}
+            confirming={confirm.isPending && confirm.variables?.id === occ.id}
+            skipping={skip.isPending && skip.variables?.id === occ.id}
+            mutationError={
+              confirm.variables?.id === occ.id
+                ? confirm.error?.message
+                : skip.variables?.id === occ.id
+                  ? skip.error?.message
+                  : undefined
+            }
             onConfirm={(overrides) => confirm.mutate({ id: occ.id, ...overrides })}
-            onSkip={() => skip.mutate({ id: occ.id })}
+            onSkip={() => {
+              if (window.confirm("Skip this occurrence?")) {
+                skip.mutate({ id: occ.id });
+              }
+            }}
           />
         ))}
       </div>
@@ -118,6 +143,9 @@ function DueCard({
   paymentMethods,
   cards,
   busy,
+  confirming,
+  skipping,
+  mutationError,
   onConfirm,
   onSkip,
 }: {
@@ -126,6 +154,9 @@ function DueCard({
   paymentMethods: Option[];
   cards: Option[];
   busy: boolean;
+  confirming: boolean;
+  skipping: boolean;
+  mutationError?: string;
   onConfirm: (overrides: Omit<ConfirmInput, "id">) => void;
   onSkip: () => void;
 }) {
@@ -218,31 +249,32 @@ function DueCard({
     }
   };
 
-  const labelCls = "text-xs uppercase tracking-[0.2em] text-zinc-400";
+  const labelCls = "text-sm font-medium text-ink-soft";
   const fieldCls =
-    "mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900";
+    "mt-1 w-full rounded-xl border border-line px-3 py-2 text-base text-ink transition focus:border-accent";
 
   return (
-    <div className="rounded-2xl border border-amber-100 bg-white px-4 py-3">
+    <div className="rounded-xl border border-warning/20 bg-surface px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-zinc-900">{title}</p>
-          <p className="text-xs text-zinc-500">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-ink">{title}</p>
+          <p className="text-xs text-muted">
             {formatShortDate(occ.dueDate)}
             {meta ? ` · ${meta}` : ""}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
           {!editing ? (
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-zinc-400">
+            <div className="relative min-w-32 flex-1 sm:flex-none">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted">
                 ₩
               </span>
               <input
+                disabled={busy}
                 inputMode="numeric"
                 aria-label="Amount"
                 placeholder="Amount"
-                className="w-32 rounded-xl border border-zinc-200 py-2 pl-7 pr-3 text-right text-sm font-semibold text-zinc-900 outline-none transition focus:border-zinc-900"
+                className="w-full rounded-xl border border-line py-2 pl-7 pr-3 text-right text-sm font-semibold text-ink transition focus:border-accent sm:w-32"
                 value={formatDigits(amount)}
                 onChange={(e) => {
                   setError(null);
@@ -257,12 +289,13 @@ function DueCard({
               busy || (editing && isSpend && Boolean(discountCalculationError))
             }
             onClick={handleAdd}
-            className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent-strong disabled:bg-muted"
           >
-            Add
+            {confirming ? "Adding…" : "Add"}
           </button>
           <button
             type="button"
+            disabled={busy}
             onClick={() => {
               if (editing) {
                 setError(null);
@@ -270,7 +303,7 @@ function DueCard({
               }
               setEditing((value) => !value);
             }}
-            className="rounded-full border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
+            className="rounded-full border border-line px-3 py-2 text-xs font-semibold text-muted transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
           >
             {editing ? "Close" : "Edit"}
           </button>
@@ -278,20 +311,21 @@ function DueCard({
             type="button"
             disabled={busy}
             onClick={onSkip}
-            className="rounded-full border border-zinc-200 px-3 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900 disabled:cursor-not-allowed"
+            className="rounded-full border border-line px-3 py-2 text-xs font-semibold text-muted transition hover:text-ink disabled:cursor-not-allowed"
           >
-            Skip
+            {skipping ? "Skipping…" : "Skip"}
           </button>
         </div>
       </div>
 
-      {error ? <p className="mt-2 text-xs text-red-600">{error}</p> : null}
+      {error || mutationError ? <p role="alert" className="mt-2 text-sm text-danger">{error ?? "Couldn’t update entry."}</p> : null}
 
       {editing ? (
-        <div className="mt-4 grid gap-3 border-t border-zinc-100 pt-4 md:grid-cols-2">
+        <div className="mt-4 grid gap-3 border-t border-line pt-4 md:grid-cols-2">
           <div className="md:col-span-2">
             <label className={labelCls}>{isSpend ? "Merchant" : "Description"}</label>
             <input
+              aria-label={isSpend ? "Merchant" : "Description"}
               className={fieldCls}
               value={isSpend ? merchant : description}
               onChange={(e) =>
@@ -305,6 +339,7 @@ function DueCard({
             <label className={labelCls}>Date</label>
             <input
               type="date"
+              aria-label="Date"
               className={fieldCls}
               value={date}
               onChange={(e) => setDate(e.target.value)}
@@ -314,6 +349,7 @@ function DueCard({
             <label className={labelCls}>{isSpend ? "Amount" : "Revenue"}</label>
             <input
               inputMode="numeric"
+              aria-label={isSpend ? "Amount" : "Revenue"}
               className={fieldCls}
               value={formatDigits(amount)}
               onChange={(e) => {
@@ -338,6 +374,7 @@ function DueCard({
               <label className={labelCls}>Cost</label>
               <input
                 inputMode="numeric"
+                aria-label="Cost"
                 className={fieldCls}
                 value={formatDigits(second)}
                 onChange={(e) => {
@@ -352,6 +389,7 @@ function DueCard({
               <div>
                 <label className={labelCls}>Category</label>
                 <select
+                  aria-label="Category"
                   className={`${fieldCls} bg-white`}
                   value={categoryId}
                   onChange={(e) => setCategoryId(e.target.value)}
@@ -367,6 +405,7 @@ function DueCard({
               <div>
                 <label className={labelCls}>Payment</label>
                 <select
+                  aria-label="Payment method"
                   className={`${fieldCls} bg-white`}
                   value={paymentMethodId}
                   onChange={(e) => setPaymentMethodId(e.target.value)}
@@ -383,7 +422,8 @@ function DueCard({
           ) : (
             <div className="md:col-span-2">
               <label className={labelCls}>Card</label>
-              <select
+            <select
+              aria-label="Card"
                 className={`${fieldCls} bg-white`}
                 value={cardId}
                 onChange={(e) => setCardId(e.target.value)}

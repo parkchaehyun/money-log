@@ -1,10 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { trpc } from "@/trpc/react";
 import { MultiSelectionSheet } from "@/components/multi-selection-sheet";
+import { resolveDashboardPeriod } from "@/lib/ui-behavior";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), {
   ssr: false,
@@ -12,17 +13,14 @@ const ReactECharts = dynamic(() => import("echarts-for-react"), {
 
 const formatter = new Intl.NumberFormat("ko-KR");
 const COLORS = {
-  spend: "#fb7185",
-  income: "#34d399",
-  net: "#0f172a",
-  muted: "#94a3b8",
-  grid: "#e4e4e7",
+  spend: "#b23b4d",
+  income: "#19734e",
+  net: "#18211c",
+  muted: "#626a64",
+  grid: "#d8d4ca",
 };
 
 const formatCurrency = (value: number) => `₩${formatter.format(Math.abs(value))}`;
-
-const formatSigned = (value: number, sign: "+" | "-" | "=") =>
-  `${sign}₩${formatter.format(Math.abs(value))}`;
 
 const formatAxisValue = (value: number) => {
   const abs = Math.abs(value);
@@ -53,13 +51,17 @@ export function DashboardScreen() {
   const [tagSheetOpen, setTagSheetOpen] = useState(false);
 
   const yearsQuery = trpc.dashboard.years.useQuery();
-  const years = yearsQuery.data ?? [currentYear];
-
-  useEffect(() => {
-    if (years.length && !years.includes(year)) {
-      setYear(years[0]);
-    }
-  }, [year, years]);
+  const years = useMemo(
+    () => yearsQuery.data ?? [currentYear],
+    [currentYear, yearsQuery.data]
+  );
+  const period = resolveDashboardPeriod({
+    years,
+    requestedYear: year,
+    requestedMonth: month,
+    currentYear,
+    currentMonth,
+  });
 
   const spendFilters = useMemo(
     () => ({
@@ -92,17 +94,17 @@ export function DashboardScreen() {
   );
 
   const yearOverviewQuery = trpc.dashboard.yearOverview.useQuery({
-    year,
+    year: period.year,
     filters: spendFilters,
   });
   const monthCategoryQuery = trpc.dashboard.monthCategory.useQuery({
-    year,
-    month,
+    year: period.year,
+    month: period.month,
     filters: spendFilters,
   });
   const monthCardsQuery = trpc.dashboard.monthCards.useQuery({
-    year,
-    month,
+    year: period.year,
+    month: period.month,
     limit: 6,
     filters: spendFilters,
   });
@@ -115,7 +117,7 @@ export function DashboardScreen() {
   };
 
   const monthTotals = useMemo(() => {
-    const match = yearOverview?.months.find((item) => item.month === month);
+    const match = yearOverview?.months.find((item) => item.month === period.month);
     return (
       match ?? {
         spendNetCents: 0,
@@ -123,10 +125,10 @@ export function DashboardScreen() {
         effectiveNetCents: 0,
       }
     );
-  }, [month, yearOverview?.months]);
+  }, [period.month, yearOverview?.months]);
 
   const availableMonths = useMemo(() => {
-    if (year < currentYear) {
+    if (period.year < currentYear) {
       return monthLabels.map((label, index) => ({
         value: index + 1,
         label,
@@ -137,17 +139,11 @@ export function DashboardScreen() {
       value: index + 1,
       label,
     }));
-  }, [currentMonth, currentYear, year]);
+  }, [currentMonth, currentYear, period.year]);
 
-  useEffect(() => {
-    if (!availableMonths.some((item) => item.value === month)) {
-      const fallback =
-        availableMonths[availableMonths.length - 1]?.value ?? currentMonth;
-      setMonth(fallback);
-    }
-  }, [availableMonths, currentMonth, month]);
-
-  const monthLabel = `${year}.${monthLabels[month - 1]}`;
+  const monthLabel = `${period.year}.${monthLabels[period.month - 1]}`;
+  const overviewUnavailable =
+    yearOverviewQuery.isLoading || yearOverviewQuery.isError;
   const totalTagOptions = tags.length + 1;
   const selectedTagCount = tagFilterIds.length + (includeNoTags ? 1 : 0);
   const categorySummary =
@@ -176,6 +172,10 @@ export function DashboardScreen() {
   const netTrendOption = useMemo(() => {
     const data = yearOverview?.months ?? [];
     return {
+      aria: {
+        enabled: true,
+        description: "Monthly net outflow. Positive values mean spend exceeded income.",
+      },
       grid: { left: 16, right: 16, top: 24, bottom: 24, containLabel: true },
       tooltip: {
         trigger: "axis",
@@ -192,7 +192,7 @@ export function DashboardScreen() {
         type: "value",
         axisLine: { show: false },
         axisTick: { show: false },
-        splitLine: { lineStyle: { color: "#f4f4f5" } },
+        splitLine: { lineStyle: { color: "#eae6dc" } },
         axisLabel: {
           color: COLORS.muted,
           formatter: (value: number) => formatAxisValue(value),
@@ -200,13 +200,13 @@ export function DashboardScreen() {
       },
       series: [
         {
-          name: "Net",
+          name: "Net outflow",
           type: "line",
           data: data.map((item) => item.effectiveNetCents),
           smooth: true,
           showSymbol: false,
           lineStyle: { color: COLORS.net, width: 3 },
-          areaStyle: { color: "rgba(15, 23, 42, 0.08)" },
+          areaStyle: { color: "rgba(37, 110, 82, 0.12)" },
         },
       ],
     };
@@ -215,6 +215,10 @@ export function DashboardScreen() {
   const spendIncomeOption = useMemo(() => {
     const data = yearOverview?.months ?? [];
     return {
+      aria: {
+        enabled: true,
+        description: "Monthly spend and income comparison.",
+      },
       grid: { left: 16, right: 16, top: 24, bottom: 24, containLabel: true },
       tooltip: {
         trigger: "axis",
@@ -236,7 +240,7 @@ export function DashboardScreen() {
         type: "value",
         axisLine: { show: false },
         axisTick: { show: false },
-        splitLine: { lineStyle: { color: "#f4f4f5" } },
+        splitLine: { lineStyle: { color: "#eae6dc" } },
         axisLabel: {
           color: COLORS.muted,
           formatter: (value: number) => formatAxisValue(value),
@@ -267,6 +271,10 @@ export function DashboardScreen() {
       value: item.netCents,
     }));
     return {
+      aria: {
+        enabled: true,
+        description: "Spend by category for the selected month.",
+      },
       tooltip: {
         trigger: "item",
         formatter: (params: { name: string; value: number }) =>
@@ -277,7 +285,7 @@ export function DashboardScreen() {
           name: "Categories",
           type: "pie",
           radius: ["45%", "70%"],
-          itemStyle: { borderColor: "#fff", borderWidth: 2 },
+          itemStyle: { borderColor: "#fffdf8", borderWidth: 2 },
           label: { show: false },
           data,
         },
@@ -288,6 +296,10 @@ export function DashboardScreen() {
   const cardOption = useMemo(() => {
     const data = monthCardsQuery.data ?? [];
     return {
+      aria: {
+        enabled: true,
+        description: "Card gross spend and savings for the selected month.",
+      },
       grid: { left: 16, right: 16, top: 24, bottom: 24, containLabel: true },
       tooltip: {
         trigger: "axis",
@@ -303,7 +315,7 @@ export function DashboardScreen() {
         type: "value",
         axisLine: { show: false },
         axisTick: { show: false },
-        splitLine: { lineStyle: { color: "#f4f4f5" } },
+        splitLine: { lineStyle: { color: "#eae6dc" } },
         axisLabel: {
           color: COLORS.muted,
           formatter: (value: number) => formatAxisValue(value),
@@ -336,17 +348,16 @@ export function DashboardScreen() {
   }, [monthCardsQuery.data]);
 
   return (
-    <section className="rounded-3xl border border-zinc-200 bg-white/95 p-6 shadow-sm">
+    <section className="surface-panel p-4 sm:p-6">
       <div className="flex flex-col gap-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                Year
-              </p>
+              <p className="text-sm font-medium text-ink-soft">Year</p>
               <select
-                className="mt-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900"
-                value={year}
+                aria-label="Year"
+                className="mt-2 rounded-xl border border-line bg-surface px-4 py-2 text-base text-ink transition focus:border-accent"
+                value={period.year}
                 onChange={(event) => setYear(Number(event.target.value))}
               >
                 {years.map((yearOption) => (
@@ -357,12 +368,11 @@ export function DashboardScreen() {
               </select>
             </div>
             <div className="min-w-[160px]">
-              <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                Month
-              </p>
+              <p className="text-sm font-medium text-ink-soft">Month</p>
               <select
-                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900"
-                value={month}
+                aria-label="Month"
+                className="mt-2 w-full rounded-xl border border-line bg-surface px-4 py-2 text-base text-ink transition focus:border-accent"
+                value={period.month}
                 onChange={(event) => setMonth(Number(event.target.value))}
               >
                 {availableMonths.map((item) => (
@@ -377,7 +387,7 @@ export function DashboardScreen() {
           <div className="grid gap-3 sm:grid-cols-2">
             {[
               {
-                label: `${year} YTD`,
+                label: `${period.year} YTD`,
                 spend: yearTotals.spendNetCents,
                 income: yearTotals.incomeNetCents,
                 effective: yearTotals.effectiveNetCents,
@@ -391,39 +401,31 @@ export function DashboardScreen() {
             ].map((item) => (
               <div
                 key={item.label}
-                className="rounded-2xl border border-zinc-100 bg-zinc-50/60 px-4 py-3"
+                className="rounded-xl bg-surface-soft/65 px-4 py-3"
               >
-                <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+                <p className="text-xs uppercase tracking-[0.2em] text-muted">
                   {item.label}
                 </p>
-                <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
-                  <span style={{ color: COLORS.spend }}>
-                    {formatSigned(item.spend, "+")}
-                  </span>
-                  <span style={{ color: COLORS.income }}>
-                    {formatSigned(item.income, "-")}
-                  </span>
-                  <span style={{ color: COLORS.net }}>
-                    {item.effective >= 0
-                      ? formatSigned(item.effective, "=")
-                      : `=-${formatCurrency(item.effective)}`}
-                  </span>
+                <div className="financial-number mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                  <span className="text-expense"><span className="font-medium">Spend</span> {overviewUnavailable ? "₩—" : formatCurrency(item.spend)}</span>
+                  <span className="text-income"><span className="font-medium">Income</span> {overviewUnavailable ? "₩—" : formatCurrency(item.income)}</span>
+                  <span className="text-ink"><span className="font-medium">{item.effective >= 0 ? "Outflow" : "Surplus"}</span> {overviewUnavailable ? "₩—" : formatCurrency(item.effective)}</span>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="rounded-2xl border border-zinc-100 bg-zinc-50/60 p-4">
+        <div className="rounded-2xl border border-line bg-surface-soft/35 p-4">
           <div className="flex items-center justify-between">
-            <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+            <p className="text-xs uppercase tracking-[0.2em] text-muted">
               Spend filters
             </p>
             <button
               type="button"
               onClick={resetFilters}
               disabled={!hasFilters}
-              className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-400 transition hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-300"
+              className="text-xs font-medium uppercase tracking-[0.2em] text-muted transition hover:text-ink disabled:cursor-not-allowed disabled:text-line-strong"
             >
               Reset
             </button>
@@ -432,109 +434,114 @@ export function DashboardScreen() {
             <button
               type="button"
               onClick={() => setCategorySheetOpen(true)}
-              className="flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 transition hover:border-zinc-300"
+              className="flex w-full items-center justify-between rounded-2xl border border-line bg-white px-4 py-2 text-sm text-ink transition hover:border-line-strong"
             >
               <span className="font-medium">Categories</span>
-              <span className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+              <span className="text-xs uppercase tracking-[0.2em] text-muted">
                 {categorySummary}
               </span>
             </button>
             <button
               type="button"
               onClick={() => setPaymentSheetOpen(true)}
-              className="flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 transition hover:border-zinc-300"
+              className="flex w-full items-center justify-between rounded-2xl border border-line bg-white px-4 py-2 text-sm text-ink transition hover:border-line-strong"
             >
               <span className="font-medium">Payments</span>
-              <span className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+              <span className="text-xs uppercase tracking-[0.2em] text-muted">
                 {paymentSummary}
               </span>
             </button>
             <button
               type="button"
               onClick={() => setTagSheetOpen(true)}
-              className="flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 transition hover:border-zinc-300"
+              className="flex w-full items-center justify-between rounded-2xl border border-line bg-white px-4 py-2 text-sm text-ink transition hover:border-line-strong"
             >
               <span className="font-medium">Tags</span>
-              <span className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+              <span className="text-xs uppercase tracking-[0.2em] text-muted">
                 {tagSummary}
               </span>
             </button>
           </div>
         </div>
 
-        <div className="grid gap-6">
-          <div className="rounded-3xl border border-zinc-100 bg-white px-4 py-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                  Year Trend
-                </p>
-                <h3 className="text-lg font-semibold text-zinc-900">
-                  Effective Net
-                </h3>
-              </div>
+        <div className="grid gap-7">
+          <section className="rounded-2xl bg-accent-soft/55 p-4 sm:p-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-2xl font-semibold tracking-[-0.03em] text-ink">Net outflow</h2>
+              <span className="text-sm text-muted">Spend − income</span>
             </div>
-            <div className="mt-4">
-              <ReactECharts option={netTrendOption} style={{ height: 280 }} />
+            <div className="mt-3">
+              {yearOverviewQuery.isLoading ? (
+                <ChartStatus label="Loading trend…" />
+              ) : yearOverviewQuery.isError ? (
+                <ChartError onRetry={() => void yearOverviewQuery.refetch()} />
+              ) : (
+                <>
+                  <ReactECharts option={netTrendOption} style={{ height: 320 }} />
+                  <YearDataTable data={yearOverview?.months ?? []} caption="Monthly net outflow" />
+                </>
+              )}
             </div>
-          </div>
+          </section>
 
-          <div className="rounded-3xl border border-zinc-100 bg-white px-4 py-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                  Year Mix
-                </p>
-                <h3 className="text-lg font-semibold text-zinc-900">
-                  Spend vs Income
-                </h3>
-              </div>
+          <section className="border-t border-line pt-6">
+            <h2 className="text-lg font-semibold text-ink">Spend vs income</h2>
+            <div className="mt-3">
+              {yearOverviewQuery.isLoading ? (
+                <ChartStatus label="Loading comparison…" />
+              ) : yearOverviewQuery.isError ? (
+                <ChartError onRetry={() => void yearOverviewQuery.refetch()} />
+              ) : (
+                <>
+                  <ReactECharts option={spendIncomeOption} style={{ height: 280 }} />
+                  <YearDataTable data={yearOverview?.months ?? []} caption="Monthly spend and income" />
+                </>
+              )}
             </div>
-            <div className="mt-4">
-              <ReactECharts option={spendIncomeOption} style={{ height: 280 }} />
-            </div>
-          </div>
+          </section>
 
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="rounded-3xl border border-zinc-100 bg-white px-4 py-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                    {monthLabel}
-                  </p>
-                  <h3 className="text-lg font-semibold text-zinc-900">
-                    Category Breakdown
-                  </h3>
-                </div>
+          <div className="grid gap-7 border-t border-line pt-6 md:grid-cols-2">
+            <section className="min-w-0">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="text-lg font-semibold text-ink">Categories</h2>
+                <span className="text-sm text-muted">{monthLabel}</span>
               </div>
-              <div className="mt-4">
-                {monthCategoryQuery.data?.length ? (
-                  <ReactECharts option={categoryOption} style={{ height: 280 }} />
+              <div className="mt-3">
+                {monthCategoryQuery.isLoading ? (
+                  <ChartStatus label="Loading categories…" />
+                ) : monthCategoryQuery.isError ? (
+                  <ChartError onRetry={() => void monthCategoryQuery.refetch()} />
+                ) : monthCategoryQuery.data?.length ? (
+                  <>
+                    <ReactECharts option={categoryOption} style={{ height: 280 }} />
+                    <CategoryDataTable data={monthCategoryQuery.data} />
+                  </>
                 ) : (
-                  <p className="text-sm text-zinc-500">No spend data yet.</p>
+                  <ChartStatus label="No spend data" />
                 )}
               </div>
-            </div>
+            </section>
 
-            <div className="rounded-3xl border border-zinc-100 bg-white px-4 py-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-                    {monthLabel}
-                  </p>
-                  <h3 className="text-lg font-semibold text-zinc-900">
-                    Card Spend vs Saved
-                  </h3>
-                </div>
+            <section className="min-w-0">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="text-lg font-semibold text-ink">Cards</h2>
+                <span className="text-sm text-muted">{monthLabel}</span>
               </div>
-              <div className="mt-4">
-                {monthCardsQuery.data?.length ? (
-                  <ReactECharts option={cardOption} style={{ height: 280 }} />
+              <div className="mt-3">
+                {monthCardsQuery.isLoading ? (
+                  <ChartStatus label="Loading cards…" />
+                ) : monthCardsQuery.isError ? (
+                  <ChartError onRetry={() => void monthCardsQuery.refetch()} />
+                ) : monthCardsQuery.data?.length ? (
+                  <>
+                    <ReactECharts option={cardOption} style={{ height: 280 }} />
+                    <CardDataTable data={monthCardsQuery.data} />
+                  </>
                 ) : (
-                  <p className="text-sm text-zinc-500">No card data yet.</p>
+                  <ChartStatus label="No card data" />
                 )}
               </div>
-            </div>
+            </section>
           </div>
         </div>
       </div>
@@ -602,5 +609,63 @@ export function DashboardScreen() {
         clearLabel="Clear tags"
       />
     </section>
+  );
+}
+
+function ChartStatus({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-56 items-center justify-center rounded-xl bg-surface-soft/50 px-4 text-sm text-muted" role="status">
+      {label}
+    </div>
+  );
+}
+
+function ChartError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="flex min-h-56 items-center justify-center gap-3 rounded-xl bg-danger/5 px-4" role="alert">
+      <span className="text-sm text-danger">Couldn’t load chart.</span>
+      <button type="button" onClick={onRetry} className="rounded-lg px-3 text-sm font-semibold text-danger hover:bg-white">Retry</button>
+    </div>
+  );
+}
+
+function YearDataTable({
+  data,
+  caption,
+}: {
+  data: Array<{
+    month: number;
+    spendNetCents: number;
+    incomeNetCents: number;
+    effectiveNetCents: number;
+  }>;
+  caption: string;
+}) {
+  return (
+    <table className="sr-only">
+      <caption>{caption}</caption>
+      <thead><tr><th scope="col">Month</th><th scope="col">Spend</th><th scope="col">Income</th><th scope="col">Net outflow</th></tr></thead>
+      <tbody>{data.map((item) => <tr key={item.month}><th scope="row">{monthLabels[item.month - 1]}</th><td>{formatCurrency(item.spendNetCents)}</td><td>{formatCurrency(item.incomeNetCents)}</td><td>{item.effectiveNetCents < 0 ? "Surplus " : ""}{formatCurrency(item.effectiveNetCents)}</td></tr>)}</tbody>
+    </table>
+  );
+}
+
+function CategoryDataTable({ data }: { data: Array<{ id: string; name: string; netCents: number }> }) {
+  return (
+    <table className="sr-only">
+      <caption>Spend by category</caption>
+      <thead><tr><th scope="col">Category</th><th scope="col">Spend</th></tr></thead>
+      <tbody>{data.map((item) => <tr key={item.id}><th scope="row">{item.name}</th><td>{formatCurrency(item.netCents)}</td></tr>)}</tbody>
+    </table>
+  );
+}
+
+function CardDataTable({ data }: { data: Array<{ id: string; name: string; grossCents: number; discountCents: number }> }) {
+  return (
+    <table className="sr-only">
+      <caption>Card spend and savings</caption>
+      <thead><tr><th scope="col">Card</th><th scope="col">Gross</th><th scope="col">Saved</th></tr></thead>
+      <tbody>{data.map((item) => <tr key={item.id}><th scope="row">{item.name}</th><td>{formatCurrency(item.grossCents)}</td><td>{formatCurrency(item.discountCents)}</td></tr>)}</tbody>
+    </table>
   );
 }

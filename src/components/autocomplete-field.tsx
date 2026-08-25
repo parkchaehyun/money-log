@@ -1,15 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
-import { disassembleHangul } from "@/lib/hangul-search";
+import { filterAutocompleteItems } from "@/lib/ui-behavior";
 
 type AutocompleteFieldProps<T> = {
   label: string;
   placeholder?: string;
   value: string;
   onChange: (value: string) => void;
-  /** Full distinct candidate list; filtered client-side as the user types. */
   items: T[];
   onSelect: (item: T) => void;
   onBlur?: () => void;
@@ -35,81 +34,86 @@ export function AutocompleteField<T>({
   maxResults = 8,
 }: AutocompleteFieldProps<T>) {
   const [focused, setFocused] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const inputId = useId();
+  const listId = useId();
+  const matches = useMemo(
+    () => filterAutocompleteItems(items, value, getPrimary, maxResults),
+    [getPrimary, items, maxResults, value]
+  );
+  const open = focused && !dismissed && matches.length > 0;
+  const safeIndex = matches.length ? Math.min(activeIndex, matches.length - 1) : 0;
 
-  const matches = useMemo(() => {
-    const query = disassembleHangul(value.trim());
-    if (!query) {
-      return [];
-    }
-    // Rank prefix matches above internal-substring matches; within each tier
-    // the incoming order (most-recently-used first) is preserved. Exact
-    // matches are kept so a past entry can be reselected to reuse its amount.
-    const prefix: T[] = [];
-    const substring: T[] = [];
-    for (const item of items) {
-      const name = disassembleHangul(getPrimary(item));
-      if (name.startsWith(query)) {
-        prefix.push(item);
-      } else if (name.includes(query)) {
-        substring.push(item);
-      }
-    }
-    return [...prefix, ...substring].slice(0, maxResults);
-  }, [value, items, getPrimary, maxResults]);
-
-  const open = focused && matches.length > 0;
+  const choose = (item: T) => {
+    onSelect(item);
+    setDismissed(true);
+  };
 
   return (
     <div>
-      <label className="text-xs uppercase tracking-[0.2em] text-zinc-400">
-        {label}
-      </label>
+      <label htmlFor={inputId} className="text-sm font-medium text-ink-soft">{label}</label>
       <div className="relative">
         <input
-          className="mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
+          id={inputId}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-activedescendant={open ? `${listId}-${safeIndex}` : undefined}
+          className="mt-2 w-full rounded-xl border border-line px-4 py-3 text-base transition focus:border-accent"
           placeholder={placeholder}
           value={value}
-          onChange={(event) => onChange(event.target.value)}
-          onFocus={() => setFocused(true)}
+          onChange={(event) => {
+            onChange(event.target.value);
+            setDismissed(false);
+            setActiveIndex(0);
+          }}
+          onFocus={() => {
+            setFocused(true);
+            setDismissed(false);
+          }}
           onBlur={() => {
             setFocused(false);
             onBlur?.();
           }}
+          onKeyDown={(event) => {
+            if (!matches.length) return;
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setDismissed(false);
+              setActiveIndex((index) => (index + 1) % matches.length);
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setDismissed(false);
+              setActiveIndex((index) => (index - 1 + matches.length) % matches.length);
+            } else if (event.key === "Enter" && open) {
+              event.preventDefault();
+              choose(matches[safeIndex]);
+            } else if (event.key === "Escape") {
+              setDismissed(true);
+            }
+          }}
           autoComplete="off"
         />
         {open ? (
-          <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-y-auto overflow-x-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
-            {matches.map((item) => {
+          <ul id={listId} role="listbox" className="scrollbar-subtle absolute inset-x-0 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-lg">
+            {matches.map((item, index) => {
               const secondary = getSecondary?.(item);
               const trailing = getTrailing?.(item);
+              const active = index === safeIndex;
               return (
-                <li key={getKey(item)}>
-                  <button
-                    type="button"
-                    // Prevent the input's blur from firing before the click.
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      onSelect(item);
-                      setFocused(false);
-                    }}
-                    className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition hover:bg-zinc-50"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-zinc-900">
-                        {getPrimary(item)}
-                      </span>
-                      {secondary ? (
-                        <span className="block truncate text-xs text-zinc-400">
-                          {secondary}
-                        </span>
-                      ) : null}
-                    </span>
-                    {trailing ? (
-                      <span className="shrink-0 text-sm font-semibold text-zinc-400">
-                        {trailing}
-                      </span>
-                    ) : null}
-                  </button>
+                <li
+                  id={`${listId}-${index}`}
+                  key={getKey(item)}
+                  role="option"
+                  aria-selected={active}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => choose(item)}
+                  className={`flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 text-left ${active ? "bg-accent-soft" : "hover:bg-surface-soft"}`}
+                >
+                  <span className="min-w-0"><span className="block truncate text-sm font-medium text-ink">{getPrimary(item)}</span>{secondary ? <span className="block truncate text-xs text-muted">{secondary}</span> : null}</span>
+                  {trailing ? <span className="financial-number shrink-0 text-sm font-semibold text-muted">{trailing}</span> : null}
                 </li>
               );
             })}

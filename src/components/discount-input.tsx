@@ -234,13 +234,13 @@ export function DiscountInput({
   return (
     <div className={className}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <label htmlFor={inputId} className="text-xs font-medium text-zinc-600">
+        <label htmlFor={inputId} className="text-xs font-medium text-ink-soft">
           {label}
         </label>
         <div
           role="radiogroup"
           aria-label="Discount input type"
-          className="grid grid-cols-3 rounded-xl bg-zinc-100 p-1"
+          className="grid grid-cols-3 rounded-xl bg-surface-soft p-1"
         >
           {[
             { id: "amount" as const, label: "₩ Off" },
@@ -255,10 +255,10 @@ export function DiscountInput({
                 role="radio"
                 aria-checked={selected}
                 onClick={() => changeMode(option.id)}
-                className={`min-h-9 rounded-lg px-3 text-xs font-semibold transition motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 ${
+                className={`min-h-9 rounded-lg px-3 text-xs font-semibold transition motion-reduce:transition-none ${
                   selected
-                    ? "bg-white text-zinc-900 shadow-sm"
-                    : "text-zinc-600 hover:text-zinc-900"
+                    ? "bg-surface text-ink shadow-sm"
+                    : "text-ink-soft hover:text-ink"
                 }`}
               >
                 {option.label}
@@ -270,7 +270,7 @@ export function DiscountInput({
 
       <div className="relative mt-2">
         {mode !== "percent" ? (
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-zinc-500">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted">
             ₩
           </span>
         ) : null}
@@ -286,8 +286,8 @@ export function DiscountInput({
           }
           aria-invalid={Boolean(calculation.error)}
           aria-describedby={calculation.error ? errorId : undefined}
-          className={`w-full border bg-white text-zinc-900 outline-none transition placeholder:text-zinc-500 motion-reduce:transition-none focus:border-zinc-900 ${
-            calculation.error ? "border-red-400" : "border-zinc-200"
+          className={`w-full border bg-surface text-ink transition placeholder:text-muted motion-reduce:transition-none focus:border-accent ${
+            calculation.error ? "border-danger" : "border-line"
           } ${inputPadding} ${inputSizing}`}
           placeholder="0"
           value={displayedValue}
@@ -314,7 +314,7 @@ export function DiscountInput({
           }}
         />
         {mode === "percent" ? (
-          <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-zinc-500">
+          <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-muted">
             %
           </span>
         ) : null}
@@ -330,10 +330,10 @@ export function DiscountInput({
                 type="button"
                 aria-pressed={selected}
                 onClick={() => setCalculationInput(String(rate))}
-                className={`min-h-9 min-w-14 rounded-full px-3 text-xs font-semibold transition motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900 ${
+                className={`min-h-9 min-w-14 rounded-full px-3 text-xs font-semibold transition motion-reduce:transition-none ${
                   selected
-                    ? "bg-zinc-900 text-white"
-                    : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900"
+                    ? "bg-ink text-surface"
+                    : "bg-surface-soft text-ink-soft hover:text-ink"
                 }`}
               >
                 {rate}%
@@ -344,26 +344,26 @@ export function DiscountInput({
       ) : null}
 
       {calculation.error ? (
-        <p id={errorId} role="alert" className="mt-2 text-sm text-red-600">
+        <p id={errorId} role="alert" className="mt-2 text-sm text-danger">
           {calculation.error}
         </p>
       ) : null}
 
       {showSummary && grossCents > 0 && !calculation.error ? (
         <div
-          className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 pt-3 text-xs text-zinc-600"
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3 text-xs text-ink-soft"
           aria-live="polite"
         >
           <span>
             Saved{" "}
-            <strong className="font-semibold text-zinc-900">
+            <strong className="financial-number font-semibold text-ink">
               ₩{formatter.format(discountCents)}
             </strong>
             {effectiveRate ? ` · ${effectiveRate}%` : ""}
           </span>
           <span>
             Paid{" "}
-            <strong className="text-sm font-semibold text-zinc-900">
+            <strong className="financial-number text-sm font-semibold text-ink">
               ₩{formatter.format(paidCents)}
             </strong>
           </span>

@@ -12,7 +12,6 @@ const handler = (req: NextRequest) =>
     createContext,
     onError({ error, path, type }) {
       if (process.env.NODE_ENV === "development") {
-        // eslint-disable-next-line no-console
         console.error("tRPC failed", { path, type, error });
       }
     },

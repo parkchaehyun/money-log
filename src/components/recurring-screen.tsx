@@ -8,6 +8,7 @@ import { trpc } from "@/trpc/react";
 import type { AppRouter } from "@/server/trpc/root";
 import { computeDueDates, nextDueDate } from "@/server/recurring";
 import { consumeRecurringPrefill } from "@/lib/entry-prefill";
+import { recurringImpactLabel } from "@/lib/ui-behavior";
 
 const formatter = new Intl.NumberFormat("ko-KR");
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -99,6 +100,7 @@ export function RecurringScreen() {
   const utils = trpc.useUtils();
   const [form, setForm] = useState<FormState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [appliedRuleParam, setAppliedRuleParam] = useState(false);
 
   const rulesQuery = trpc.recurring.list.useQuery();
@@ -141,7 +143,10 @@ export function RecurringScreen() {
         utils.recurring.pendingOccurrences.invalidate(),
         utils.transactions.list.invalidate(),
         utils.transactions.summary.invalidate(),
+        utils.transactions.merchantOptions.invalidate(),
         utils.income.list.invalidate(),
+        utils.income.summary.invalidate(),
+        utils.income.sourceOptions.invalidate(),
         utils.dashboard.invalidate(),
       ]);
     },
@@ -162,14 +167,18 @@ export function RecurringScreen() {
     onError: (e) => setError(e.message || "Unable to save."),
   });
   const setActive = trpc.recurring.setActive.useMutation({
-    // Sync on resume so a reactivated rule backfills the paused period now.
+    onMutate: () => setActionError(null),
+    // Sync on resume so a due-today occurrence appears immediately.
     onSuccess: async () => {
       await utils.recurring.list.invalidate();
       syncMutation.mutate();
     },
+    onError: () => setActionError("Couldn’t update rule."),
   });
   const removeRule = trpc.recurring.remove.useMutation({
+    onMutate: () => setActionError(null),
     onSuccess: refresh,
+    onError: () => setActionError("Couldn’t delete rule."),
   });
 
   // Consume a "Repeat…" handoff from Review (opens the form prefilled).
@@ -307,22 +316,22 @@ export function RecurringScreen() {
   const saving = createRule.isPending || updateRule.isPending;
 
   return (
-    <section className="rounded-3xl border border-zinc-200 bg-white/95 p-6 shadow-sm">
+    <section className="surface-panel p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold text-zinc-900">Recurring</h1>
+        <h1 className="text-lg font-semibold text-ink">Recurring</h1>
         {!form ? (
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => openCreate("SPEND")}
-              className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800"
+              className="rounded-full bg-ink px-4 py-2 text-xs font-semibold text-white transition hover:bg-ink-soft"
             >
               + Spend
             </button>
             <button
               type="button"
               onClick={() => openCreate("INCOME")}
-              className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800"
+              className="rounded-full bg-ink px-4 py-2 text-xs font-semibold text-white transition hover:bg-ink-soft"
             >
               + Income
             </button>
@@ -347,11 +356,14 @@ export function RecurringScreen() {
         />
       ) : (
         <div className="mt-6 space-y-6">
+          {actionError ? <p role="alert" className="text-sm text-danger">{actionError}</p> : null}
           <RuleGroup
             title="Spend"
             rules={spendRules}
             onEdit={openEdit}
             onToggleActive={(id, active) => setActive.mutate({ id, active })}
+            activeBusyId={setActive.isPending ? setActive.variables?.id : undefined}
+            deleteBusyId={removeRule.isPending ? removeRule.variables?.id : undefined}
             onDelete={(id) => {
               if (
                 typeof window === "undefined" ||
@@ -366,6 +378,8 @@ export function RecurringScreen() {
             rules={incomeRules}
             onEdit={openEdit}
             onToggleActive={(id, active) => setActive.mutate({ id, active })}
+            activeBusyId={setActive.isPending ? setActive.variables?.id : undefined}
+            deleteBusyId={removeRule.isPending ? removeRule.variables?.id : undefined}
             onDelete={(id) => {
               if (
                 typeof window === "undefined" ||
@@ -375,11 +389,15 @@ export function RecurringScreen() {
               }
             }}
           />
-          {rules.length === 0 ? (
-            <p className="text-sm text-zinc-500">
-              No recurring rules yet. Add one above, or use “Repeat…” on an
-              entry in Review.
-            </p>
+          {rulesQuery.isLoading ? (
+            <p className="text-sm text-muted">Loading rules…</p>
+          ) : rulesQuery.isError ? (
+            <div role="alert" className="flex items-center justify-between gap-3 rounded-xl bg-danger/5 px-4 py-3">
+              <p className="text-sm text-danger">Couldn’t load rules.</p>
+              <button type="button" onClick={() => void rulesQuery.refetch()} className="rounded-lg px-3 text-sm font-semibold text-danger hover:bg-white">Retry</button>
+            </div>
+          ) : rules.length === 0 ? (
+            <p className="text-sm text-muted">No rules yet.</p>
           ) : null}
         </div>
       )}
@@ -407,16 +425,16 @@ function lastOccurrenceOf(rule: RuleListItem): Date | null {
 }
 
 function statusOf(rule: RuleListItem) {
-  if (!rule.active) return { label: "Paused", tone: "text-zinc-400" };
+  if (!rule.active) return { label: "Paused", tone: "text-muted" };
   if (rule.endDate) {
     const last = lastOccurrenceOf(rule);
-    if (!last) return { label: "No occurrences", tone: "text-zinc-400" };
+    if (!last) return { label: "No occurrences", tone: "text-muted" };
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     if (last < today) {
-      return { label: `Ended ${formatShortDate(last)}`, tone: "text-zinc-400" };
+      return { label: `Ended ${formatShortDate(last)}`, tone: "text-muted" };
     }
-    return { label: `Ends ${formatShortDate(last)}`, tone: "text-amber-600" };
+    return { label: `Ends ${formatShortDate(last)}`, tone: "text-warning" };
   }
   return { label: "Active", tone: "text-emerald-600" };
 }
@@ -452,17 +470,21 @@ function RuleGroup({
   onEdit,
   onToggleActive,
   onDelete,
+  activeBusyId,
+  deleteBusyId,
 }: {
   title: string;
   rules: RuleListItem[];
   onEdit: (rule: RuleListItem) => void;
   onToggleActive: (id: string, active: boolean) => void;
   onDelete: (id: string) => void;
+  activeBusyId?: string;
+  deleteBusyId?: string;
 }) {
   if (rules.length === 0) return null;
   return (
     <div>
-      <p className="text-xs uppercase tracking-[0.2em] text-zinc-400">
+      <p className="text-xs uppercase tracking-[0.2em] text-muted">
         {title}
       </p>
       <div className="mt-3 space-y-3">
@@ -475,19 +497,19 @@ function RuleGroup({
           return (
             <div
               key={rule.id}
-              className="rounded-2xl border border-zinc-100 bg-zinc-50/60 px-4 py-3"
+              className="rounded-2xl border border-line bg-surface-soft/35 px-4 py-3"
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-semibold text-zinc-900">
+                    <p className="truncate text-sm font-semibold text-ink">
                       {title}
                     </p>
                     <span className={`text-xs font-medium ${status.tone}`}>
                       {status.label}
                     </span>
                   </div>
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-muted">
                     {cadenceSummary(rule)}
                     {rule.nextDueDate
                       ? ` · next ${formatShortDate(rule.nextDueDate)}`
@@ -495,29 +517,37 @@ function RuleGroup({
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-zinc-900">
+                  <span className="text-sm font-semibold text-ink">
                     {amountLabel(rule)}
                   </span>
                   <button
                     type="button"
                     onClick={() => onToggleActive(rule.id, !rule.active)}
-                    className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
+                    disabled={activeBusyId === rule.id}
+                    className="rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-muted transition hover:text-ink"
                   >
-                    {rule.active ? "Pause" : "Resume"}
+                    {activeBusyId === rule.id
+                      ? rule.active
+                        ? "Pausing…"
+                        : "Resuming…"
+                      : rule.active
+                        ? "Pause"
+                        : "Resume"}
                   </button>
                   <button
                     type="button"
                     onClick={() => onEdit(rule)}
-                    className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
+                    className="rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-muted transition hover:text-ink"
                   >
                     Edit
                   </button>
                   <button
                     type="button"
                     onClick={() => onDelete(rule.id)}
+                    disabled={deleteBusyId === rule.id}
                     className="rounded-full border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:border-rose-300"
                   >
-                    Delete
+                    {deleteBusyId === rule.id ? "Deleting…" : "Delete"}
                   </button>
                 </div>
               </div>
@@ -640,13 +670,13 @@ function RuleForm({
   ]);
 
   const isSpend = form.kind === "SPEND";
-  const labelCls = "text-xs uppercase tracking-[0.2em] text-zinc-400";
+  const labelCls = "text-sm font-medium text-ink-soft";
   const inputCls =
-    "mt-2 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900";
+    "mt-2 w-full rounded-xl border border-line px-4 py-2 text-base text-ink transition focus:border-accent";
 
   return (
-    <div className="mt-6 rounded-2xl border border-zinc-100 bg-zinc-50/60 p-4">
-      <p className="text-sm font-semibold text-zinc-900">
+    <div className="mt-6 rounded-2xl border border-line bg-surface-soft/35 p-4">
+      <p className="text-sm font-semibold text-ink">
         {form.id ? "Edit rule" : `New ${isSpend ? "spend" : "income"} rule`}
       </p>
 
@@ -655,6 +685,7 @@ function RuleForm({
         <div>
           <label className={labelCls}>Repeat</label>
           <select
+            aria-label="Repeat"
             className={`${inputCls} bg-white`}
             value={form.cadence}
             onChange={(e) => set("cadence", e.target.value as Cadence)}
@@ -669,6 +700,7 @@ function RuleForm({
           </label>
           {form.cadence === "MONTHLY" ? (
             <select
+              aria-label="Day of month"
               className={`${inputCls} bg-white`}
               value={form.dayOfMonth}
               onChange={(e) => set("dayOfMonth", Number(e.target.value))}
@@ -681,6 +713,7 @@ function RuleForm({
             </select>
           ) : (
             <select
+              aria-label="Day of week"
               className={`${inputCls} bg-white`}
               value={form.dayOfWeek}
               onChange={(e) => set("dayOfWeek", Number(e.target.value))}
@@ -698,11 +731,12 @@ function RuleForm({
           <label className={labelCls}>Starts</label>
           <input
             type="date"
+            aria-label="Start date"
             className={inputCls}
             value={form.startDate}
             onChange={(e) => set("startDate", e.target.value)}
           />
-          <p className="mt-2 text-xs text-zinc-500">
+          <p className="mt-2 text-xs text-muted">
             {firstOccurrence
               ? `First occurrence: ${formatShortDate(firstOccurrence)}`
               : "No occurrence on or after this date."}
@@ -739,8 +773,8 @@ function RuleForm({
                   }}
                   className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
                     active
-                      ? "bg-zinc-900 text-white"
-                      : "bg-zinc-100 text-zinc-600 hover:text-zinc-900"
+                      ? "bg-ink text-white"
+                      : "bg-surface-soft text-ink-soft hover:text-ink"
                   }`}
                 >
                   {opt.label}
@@ -752,11 +786,12 @@ function RuleForm({
             <>
               <input
                 type="date"
+                aria-label="End date"
                 className={inputCls}
                 value={form.endDate}
                 onChange={(e) => set("endDate", e.target.value)}
               />
-              <p className="mt-2 text-xs text-zinc-500">
+              <p className="mt-2 text-xs text-muted">
                 {lastOccurrence
                   ? `Last occurrence: ${formatShortDate(lastOccurrence)}`
                   : "No occurrence falls on or before this date."}
@@ -773,6 +808,7 @@ function RuleForm({
             <div className="md:col-span-2">
               <label className={labelCls}>Merchant</label>
               <input
+                aria-label="Merchant"
                 className={inputCls}
                 placeholder="e.g. Rent, Netflix"
                 value={form.merchant}
@@ -783,6 +819,7 @@ function RuleForm({
               <label className={labelCls}>Amount</label>
               <input
                 inputMode="numeric"
+                aria-label="Amount"
                 className={inputCls}
                 placeholder={form.autoConfirm ? "Required" : "Optional default"}
                 value={formatDigits(form.gross)}
@@ -810,6 +847,7 @@ function RuleForm({
             <div>
               <label className={labelCls}>Category</label>
               <select
+                aria-label="Category"
                 className={`${inputCls} bg-white`}
                 value={form.categoryId}
                 onChange={(e) => set("categoryId", e.target.value)}
@@ -825,6 +863,7 @@ function RuleForm({
             <div>
               <label className={labelCls}>Payment</label>
               <select
+                aria-label="Payment method"
                 className={`${inputCls} bg-white`}
                 value={form.paymentMethodId}
                 onChange={(e) => set("paymentMethodId", e.target.value)}
@@ -848,8 +887,8 @@ function RuleForm({
                       onClick={() => toggleTag(t.id)}
                       className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
                         form.tagIds.includes(t.id)
-                          ? "bg-zinc-900 text-white"
-                          : "bg-zinc-100 text-zinc-600 hover:text-zinc-900"
+                          ? "bg-ink text-white"
+                          : "bg-surface-soft text-ink-soft hover:text-ink"
                       }`}
                     >
                       {t.name}
@@ -864,6 +903,7 @@ function RuleForm({
             <div className="md:col-span-2">
               <label className={labelCls}>Description</label>
               <input
+                aria-label="Description"
                 className={inputCls}
                 placeholder="e.g. Salary"
                 value={form.description}
@@ -874,6 +914,7 @@ function RuleForm({
               <label className={labelCls}>Revenue</label>
               <input
                 inputMode="numeric"
+                aria-label="Revenue"
                 className={inputCls}
                 placeholder={
                   form.autoConfirm ? "At least one required" : "Optional default"
@@ -886,6 +927,7 @@ function RuleForm({
               <label className={labelCls}>Cost</label>
               <input
                 inputMode="numeric"
+                aria-label="Cost"
                 className={inputCls}
                 placeholder={
                   form.autoConfirm ? "At least one required" : "Optional default"
@@ -897,6 +939,7 @@ function RuleForm({
             <div className="md:col-span-2">
               <label className={labelCls}>Card</label>
               <select
+                aria-label="Card"
                 className={`${inputCls} bg-white`}
                 value={form.cardId}
                 onChange={(e) => set("cardId", e.target.value)}
@@ -913,37 +956,29 @@ function RuleForm({
         )}
       </div>
 
-      <label className="mt-4 flex items-center gap-3 text-sm text-zinc-700">
+      <label className="mt-4 flex min-h-11 items-center gap-3 text-sm text-ink-soft">
         <input
           type="checkbox"
           className="h-4 w-4"
           checked={form.autoConfirm}
           onChange={(e) => set("autoConfirm", e.target.checked)}
         />
-        Add automatically (skip the confirm step) — best for fixed amounts
+        Add automatically
       </label>
 
-      {backfillCount > 0 ? (
-        <p className="mt-3 text-xs text-zinc-500">
-          On save:{" "}
-          {form.autoConfirm
-            ? `adds ${backfillCount} ${
-                backfillCount === 1 ? "entry" : "entries"
-              } now`
-            : `queues ${backfillCount} ${
-                backfillCount === 1 ? "entry" : "entries"
-              } to confirm`}{" "}
-          (dated up to today).
+      {recurringImpactLabel(backfillCount, form.autoConfirm) ? (
+        <p className="mt-3 text-sm font-medium text-warning">
+          {recurringImpactLabel(backfillCount, form.autoConfirm)}
         </p>
       ) : null}
 
-      {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
+      {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
 
-      <div className="mt-4 flex justify-end gap-2">
+      <div className="sticky bottom-2 z-10 mt-4 flex justify-end gap-2 rounded-xl border border-line bg-surface/95 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_10px_24px_rgba(24,33,28,0.12)]">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-full border border-zinc-200 px-4 py-2 text-xs font-semibold text-zinc-500 transition hover:text-zinc-900"
+          className="rounded-full border border-line px-4 py-2 text-xs font-semibold text-muted transition hover:text-ink"
         >
           Cancel
         </button>
@@ -951,9 +986,9 @@ function RuleForm({
           type="button"
           onClick={onSubmit}
           disabled={saving || Boolean(form.discountError)}
-          className="rounded-full bg-zinc-900 px-5 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
+          className="rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-white transition hover:bg-accent-strong disabled:bg-muted"
         >
-          {saving ? "Saving..." : "Save rule"}
+          {saving ? "Saving…" : "Save rule"}
         </button>
       </div>
     </div>

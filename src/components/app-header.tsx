@@ -10,7 +10,8 @@ const navItems = [
   { href: "/", label: "Spend" },
   { href: "/income", label: "Income" },
   { href: "/review", label: "Review" },
-  { href: "/dashboard", label: "Dashboard" },
+  { href: "/dashboard", label: "Stats" },
+  { href: "/recurring", label: "Repeat" },
 ];
 
 export function AppHeader() {
@@ -43,73 +44,59 @@ export function AppHeader() {
     to: monthEnd,
   });
 
-  const spendNet = spendSummary.data?.netCents ?? 0;
-  const incomeNet =
-    (incomeSummary.data?.revenueCents ?? 0) -
-    (incomeSummary.data?.costCents ?? 0);
-  const effectiveNet = spendNet - incomeNet;
+  const totalsLoading = spendSummary.isLoading || incomeSummary.isLoading;
+  const totalsError = spendSummary.isError || incomeSummary.isError;
+  const spendNet = spendSummary.data?.netCents;
+  const incomeNet = incomeSummary.data
+    ? incomeSummary.data.revenueCents - incomeSummary.data.costCents
+    : undefined;
+  const effectiveNet =
+    spendNet === undefined || incomeNet === undefined
+      ? undefined
+      : spendNet - incomeNet;
   const formatter = new Intl.NumberFormat("ko-KR");
-  const spendLabel = `+₩${formatter.format(Math.abs(spendNet))}`;
-  const incomeLabel = `-₩${formatter.format(Math.abs(incomeNet))}`;
-  const effectiveLabel =
-    effectiveNet >= 0
-      ? `=₩${formatter.format(effectiveNet)}`
-      : `=-₩${formatter.format(Math.abs(effectiveNet))}`;
+  const totalSummary =
+    totalsLoading || totalsError || effectiveNet === undefined
+      ? null
+      : effectiveNet >= 0
+        ? `Outflow ₩${formatter.format(effectiveNet)}`
+        : `Surplus ₩${formatter.format(Math.abs(effectiveNet))}`;
 
   return (
-    <header className="flex flex-wrap items-center justify-between gap-4 rounded-3xl border border-zinc-200 bg-white/90 px-5 py-4 shadow-sm backdrop-blur">
-      <div className="flex items-center gap-3">
-        <div>
-          <p className="text-sm font-semibold tracking-tight text-zinc-900">
+    <header className="overflow-hidden rounded-2xl bg-ink px-4 pb-3 pt-4 text-white shadow-[0_18px_45px_rgba(24,33,28,0.2)] sm:px-5">
+      <div className="flex items-start justify-between gap-4 px-1">
+        <div className="min-w-0">
+          <p className="text-lg font-semibold tracking-[-0.025em]">
             Money Log
           </p>
-          <p className="mt-1 text-xs text-zinc-500">
-            {monthLabel}{" "}
-            <span style={{ color: "#fb7185" }}>{spendLabel}</span>{" "}
-            <span style={{ color: "#34d399" }}>{incomeLabel}</span>{" "}
-            <span style={{ color: "#52525b" }}>{effectiveLabel}</span>
+          <p
+            className="financial-number mt-1 truncate text-sm text-white/70"
+            aria-live="polite"
+          >
+            {monthLabel} ·{" "}
+            {totalsLoading
+              ? "Totals —"
+              : totalsError
+                ? "Totals unavailable"
+                : totalSummary}
           </p>
         </div>
-        <Link
-          href="/recurring"
-          aria-label="Recurring"
-          title="Recurring"
-          className={`flex h-9 w-9 items-center justify-center rounded-full border transition ${
-            pathname === "/recurring"
-              ? "border-zinc-900 bg-zinc-900 text-white"
-              : "border-zinc-200 text-zinc-500 hover:text-zinc-900"
-          }`}
-        >
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-4 w-4"
-          >
-            <path d="m17 2 4 4-4 4" />
-            <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
-            <path d="m7 22-4-4 4-4" />
-            <path d="M21 13v1a4 4 0 0 1-4 4H3" />
-          </svg>
-        </Link>
+        <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-income" aria-hidden="true" />
       </div>
 
-      <nav className="grid w-full grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,1.35fr)] gap-1 rounded-2xl bg-zinc-100 p-1 text-xs sm:flex sm:w-auto sm:gap-2 sm:rounded-full sm:text-sm">
+      <nav aria-label="Primary" className="mt-4 grid grid-cols-5 gap-1 rounded-xl bg-white/8 p-1">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`rounded-full px-3 py-2 text-center text-xs font-medium transition sm:px-4 sm:py-2 sm:text-sm ${
+              className={`flex min-w-0 items-center justify-center rounded-lg px-1 py-2 text-center text-[11px] font-medium transition sm:text-sm ${
                 isActive
-                  ? "bg-white text-zinc-900 shadow-sm"
-                  : "text-zinc-500 hover:text-zinc-900"
+                  ? "bg-surface text-ink shadow-sm"
+                  : "text-white/65 hover:bg-white/8 hover:text-white"
               }`}
+              aria-current={isActive ? "page" : undefined}
             >
               {item.label}
             </Link>

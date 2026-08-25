@@ -2,10 +2,17 @@ import type { Prisma, RecurringRule } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { computeDueDates, nextDueDate } from "@/server/recurring";
+import {
+  computeDueDates,
+  nextDueDate,
+  resumeLastGeneratedDate,
+} from "@/server/recurring";
 import { protectedProcedure, router } from "../trpc";
 
-type Db = typeof import("@/server/db").db;
+type Db = Pick<
+  Prisma.TransactionClient,
+  "category" | "paymentMethod" | "card" | "tag"
+>;
 
 const ruleObject = z.object({
   kind: z.enum(["SPEND", "INCOME"]),
@@ -340,12 +347,39 @@ export const recurringRouter = router({
 
   setActive: protectedProcedure
     .input(z.object({ id: z.string().cuid(), active: z.boolean() }))
-    .mutation(({ ctx, input }) =>
-      ctx.db.recurringRule.update({
-        where: { id: input.id, userId: ctx.session.user.id },
-        data: { active: input.active },
-      })
-    ),
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      if (!input.active) {
+        return ctx.db.recurringRule.update({
+          where: { id: input.id, userId },
+          data: { active: false },
+        });
+      }
+
+      const cursor = resumeLastGeneratedDate(null, new Date());
+      const resumed = await ctx.db.recurringRule.updateMany({
+        where: {
+          id: input.id,
+          userId,
+          active: false,
+          OR: [
+            { lastGeneratedDate: null },
+            { lastGeneratedDate: { lt: cursor } },
+          ],
+        },
+        data: { active: true, lastGeneratedDate: cursor },
+      });
+
+      if (resumed.count === 0) {
+        return ctx.db.recurringRule.update({
+          where: { id: input.id, userId },
+          data: { active: true },
+        });
+      }
+      return ctx.db.recurringRule.findFirstOrThrow({
+        where: { id: input.id, userId },
+      });
+    }),
 
   remove: protectedProcedure
     .input(z.object({ id: z.string().cuid() }))
@@ -446,37 +480,49 @@ export const recurringRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
-      const occurrence = await ctx.db.recurringOccurrence.findFirst({
-        where: { id: input.id, userId },
-        include: { rule: true },
-      });
-      if (!occurrence) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Occurrence not found",
+      return ctx.db.$transaction(async (tx) => {
+        const occurrence = await tx.recurringOccurrence.findFirst({
+          where: { id: input.id, userId },
+          include: { rule: true },
         });
-      }
-      // Validate any overridden references belong to the user.
-      await resolveRefs(ctx.db, userId, {
-        categoryId: input.categoryId,
-        paymentMethodId: input.paymentMethodId,
-        cardId: input.cardId,
-      });
+        if (!occurrence) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Occurrence not found",
+          });
+        }
 
-      await materialize(ctx.db, userId, occurrence.rule, occurrence.dueDate, {
-        date: input.date,
-        merchant: input.merchant,
-        grossCents: input.grossCents,
-        discountCents: input.discountCents,
-        categoryId: input.categoryId,
-        paymentMethodId: input.paymentMethodId,
-        description: input.description,
-        revenueCents: input.revenueCents,
-        costCents: input.costCents,
-        cardId: input.cardId,
+        const claimed = await tx.recurringOccurrence.deleteMany({
+          where: { id: occurrence.id, userId },
+        });
+        if (claimed.count !== 1) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Occurrence is already being processed",
+          });
+        }
+
+        // Failed validation or materialization rolls this claim back, leaving
+        // the occurrence available to retry.
+        await resolveRefs(tx, userId, {
+          categoryId: input.categoryId,
+          paymentMethodId: input.paymentMethodId,
+          cardId: input.cardId,
+        });
+        await materialize(tx, userId, occurrence.rule, occurrence.dueDate, {
+          date: input.date,
+          merchant: input.merchant,
+          grossCents: input.grossCents,
+          discountCents: input.discountCents,
+          categoryId: input.categoryId,
+          paymentMethodId: input.paymentMethodId,
+          description: input.description,
+          revenueCents: input.revenueCents,
+          costCents: input.costCents,
+          cardId: input.cardId,
+        });
+        return { ok: true };
       });
-      await ctx.db.recurringOccurrence.delete({ where: { id: occurrence.id } });
-      return { ok: true };
     }),
 
   skipOccurrence: protectedProcedure

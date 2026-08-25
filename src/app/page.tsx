@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { AppFooter } from "@/components/app-footer";
 import { AppHeader } from "@/components/app-header";
+import { AppShell } from "@/components/app-shell";
 import { QuickAddScreen } from "@/components/quick-add-screen";
 import { RecurringDue } from "@/components/recurring-due";
 import { RecurringSync } from "@/components/recurring-sync";
@@ -16,16 +17,12 @@ export default async function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_#f3f0ea,_#f7f5f2_45%,_#fefcf9_100%)] px-6 py-10 text-zinc-900">
-      <div className="mx-auto w-full max-w-4xl">
-        <div className="flex flex-col gap-8">
-          <RecurringSync />
-          <AppHeader />
-          <RecurringDue />
-          <QuickAddScreen />
-          <AppFooter />
-        </div>
-      </div>
-    </main>
+    <AppShell>
+      <RecurringSync />
+      <AppHeader />
+      <RecurringDue />
+      <QuickAddScreen />
+      <AppFooter />
+    </AppShell>
   );
 }

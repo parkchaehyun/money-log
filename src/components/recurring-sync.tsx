@@ -74,7 +74,10 @@ export function RecurringSync() {
         await Promise.all([
           utils.transactions.list.invalidate(),
           utils.transactions.summary.invalidate(),
+          utils.transactions.merchantOptions.invalidate(),
           utils.income.list.invalidate(),
+          utils.income.summary.invalidate(),
+          utils.income.sourceOptions.invalidate(),
           utils.dashboard.invalidate(),
         ]);
         setNotice(result.createdEntries);

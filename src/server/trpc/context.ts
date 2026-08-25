@@ -9,10 +9,11 @@ export type TRPCContext = {
   session: Session | null;
 };
 
-export async function createContext(_opts: {
+export async function createContext(opts: {
   req: Request;
   resHeaders: Headers;
 }): Promise<TRPCContext> {
+  void opts;
   const session = await getServerSession(authOptions);
   return { db, session: session ?? null };
 }

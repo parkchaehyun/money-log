@@ -15,7 +15,7 @@ export function SignOutButton({
 }: SignOutButtonProps) {
   const base =
     variant === "ghost"
-      ? "text-xs font-medium text-zinc-400 transition hover:text-zinc-900"
+      ? "rounded-lg px-3 text-xs font-medium text-muted transition hover:bg-surface hover:text-ink"
       : "rounded-full border border-black/10 px-4 py-2 text-sm font-medium text-black transition hover:border-black/30 hover:bg-black/5";
 
   return (

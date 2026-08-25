@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
+
+import { SheetDialog } from "@/components/sheet-dialog";
 
 type PaymentSelectionItem = {
   id: string;
@@ -18,200 +20,91 @@ type PaymentSelectionSheetProps = {
   onCreate: (name: string) => Promise<void>;
 };
 
-export function PaymentSelectionSheet({
-  open,
-  items,
-  selectedId,
-  onClose,
-  onSelect,
-  onCreate,
-}: PaymentSelectionSheetProps) {
+export function PaymentSelectionSheet(props: PaymentSelectionSheetProps) {
+  if (!props.open) return null;
+  return <PaymentSelectionSheetContent {...props} />;
+}
+
+function PaymentSelectionSheetContent({ items, selectedId, onClose, onSelect, onCreate }: PaymentSelectionSheetProps) {
   const [query, setQuery] = useState("");
   const [newName, setNewName] = useState("");
   const [isCreating, setIsCreating] = useState(false);
-  const [filter, setFilter] = useState<"cards" | "cash">("cards");
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    setQuery("");
-    setNewName("");
-    setIsCreating(false);
-    setFilter("cards");
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || filter !== "cash") {
-      return;
-    }
-    const cashItem = items.find((item) => item.type === "CASH_TRANSFER");
-    if (!cashItem) {
-      return;
-    }
-    onSelect(cashItem.id);
-    onClose();
-  }, [filter, items, onClose, onSelect, open]);
-
-  const filteredItems = useMemo(() => {
+  const [createError, setCreateError] = useState<string | null>(null);
+  const searchId = useId();
+  const createId = useId();
+  const cash = items.find((item) => item.type === "CASH_TRANSFER");
+  const cards = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    const scoped =
-      filter === "cash"
-        ? items.filter((item) => item.type === "CASH_TRANSFER")
-        : items.filter((item) => item.type === "CARD");
-    if (!normalized) {
-      return scoped;
-    }
-    return scoped.filter((item) =>
-      item.label.toLowerCase().includes(normalized)
-    );
-  }, [filter, items, query]);
-
-  if (!open) {
-    return null;
-  }
+    const cardItems = items.filter((item) => item.type === "CARD");
+    return normalized
+      ? cardItems.filter((item) => item.label.toLowerCase().includes(normalized))
+      : cardItems;
+  }, [items, query]);
+  const select = (id: string) => {
+    onSelect(id);
+    onClose();
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center px-4 pb-6 sm:items-center sm:pb-0">
-      <div
-        className="absolute inset-0 bg-black/40"
-        role="button"
-        tabIndex={-1}
-        onClick={onClose}
-        aria-label="Close selector"
-      />
-      <div className="relative w-full max-w-md rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-zinc-400">
-              Select
-            </p>
-            <h2 className="text-xl font-semibold text-zinc-900">
-              Payment Method
-            </h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-zinc-200 px-3 py-1 text-xs text-zinc-500 hover:text-zinc-900"
-          >
-            Close
+    <SheetDialog open title="Payment method" onClose={onClose}>
+      {cash ? (
+        <button
+          type="button"
+          aria-pressed={cash.id === selectedId}
+          onClick={() => select(cash.id)}
+          className={`flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-sm font-medium ${cash.id === selectedId ? "bg-ink text-white" : "bg-surface-soft text-ink hover:bg-accent-soft"}`}
+        >
+          Cash
+          {cash.id === selectedId ? <span className="text-xs text-white/75">Selected</span> : null}
+        </button>
+      ) : null}
+
+      <div className="mt-4 border-t border-line pt-4">
+        <label htmlFor={searchId} className="text-sm font-medium text-ink-soft">Cards</label>
+        <input id={searchId} className="mt-2 w-full rounded-xl border border-line px-4 py-2 text-base focus:border-accent" placeholder="Search" value={query} onChange={(event) => setQuery(event.target.value)} autoFocus={!cash} />
+      </div>
+
+      <form
+        className="mt-4"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const trimmed = newName.trim();
+          if (!trimmed || isCreating) return;
+          setCreateError(null);
+          setIsCreating(true);
+          try {
+            await onCreate(trimmed);
+            setNewName("");
+          } catch {
+            setCreateError("Couldn’t add.");
+          } finally {
+            setIsCreating(false);
+          }
+        }}
+      >
+        <label htmlFor={createId} className="sr-only">New card</label>
+        <div className="flex gap-2">
+          <input id={createId} className="min-w-0 flex-1 rounded-xl border border-line px-3 py-2 text-base focus:border-accent" value={newName} onChange={(event) => setNewName(event.target.value)} placeholder="New card" />
+          <button type="submit" disabled={isCreating || !newName.trim()} className="rounded-xl bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-strong disabled:bg-muted">
+            {isCreating ? "Adding…" : "Add"}
           </button>
         </div>
+        {createError ? <p role="alert" className="mt-2 text-sm text-danger">{createError}</p> : null}
+      </form>
 
-        <div className="mt-4 flex items-center gap-2 rounded-full bg-zinc-100 p-1 text-sm">
-          {[
-            { id: "cards", label: "Cards" },
-            { id: "cash", label: "Cash" },
-          ].map((option) => {
-            const isActive = filter === option.id;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => setFilter(option.id as "cards" | "cash")}
-                className={`flex-1 rounded-full px-3 py-2 text-sm font-medium transition ${
-                  isActive
-                    ? "bg-white text-zinc-900 shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-900"
-                }`}
-              >
-                {option.label}
+      <ul className="mt-4 space-y-1" aria-label="Cards">
+        {cards.length === 0 ? <li className="px-2 py-4 text-sm text-muted">No matches</li> : cards.map((item) => {
+          const active = item.id === selectedId;
+          return (
+            <li key={item.id}>
+              <button type="button" aria-pressed={active} onClick={() => select(item.id)} className={`flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-sm ${active ? "bg-ink text-white" : "text-ink-soft hover:bg-surface-soft"}`}>
+                <span className="min-w-0"><span className="block truncate font-medium">{item.label}</span>{item.subLabel ? <span className={`block truncate text-xs ${active ? "text-white/75" : "text-muted"}`}>{item.subLabel}</span> : null}</span>
+                {active ? <span className="text-xs text-white/75">Selected</span> : null}
               </button>
-            );
-          })}
-        </div>
-
-        {filter === "cards" ? (
-          <>
-            <input
-              className="mt-4 w-full rounded-2xl border border-zinc-200 px-4 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
-              placeholder="Search cards"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          <form
-            className="mt-4 rounded-2xl border border-dashed border-zinc-200 p-3"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              const trimmed = newName.trim();
-              if (!trimmed) {
-                return;
-              }
-              setIsCreating(true);
-              await onCreate(trimmed);
-              setIsCreating(false);
-              setNewName("");
-            }}
-          >
-            <label className="text-xs uppercase tracking-[0.3em] text-zinc-400">
-              Add card
-            </label>
-            <div className="mt-2 flex gap-2">
-              <input
-                className="flex-1 rounded-xl border border-zinc-200 px-3 py-2 text-base outline-none transition focus:border-zinc-900 sm:text-sm"
-                value={newName}
-                onChange={(event) => setNewName(event.target.value)}
-                placeholder="New card"
-              />
-              <button
-                type="submit"
-                disabled={isCreating}
-                className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition disabled:bg-zinc-400"
-              >
-                Add
-              </button>
-            </div>
-          </form>
-          </>
-        ) : null}
-
-        <div className="mt-4 max-h-72 overflow-y-auto rounded-2xl border border-zinc-100 bg-zinc-50/60 p-2">
-          {filteredItems.length === 0 ? (
-            <p className="p-4 text-sm text-zinc-500">No matches yet.</p>
-          ) : (
-            <ul className="space-y-2">
-              {filteredItems.map((item) => {
-                const isActive = item.id === selectedId;
-                return (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onSelect(item.id);
-                        onClose();
-                      }}
-                      className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm transition ${
-                        isActive
-                          ? "bg-zinc-900 text-white"
-                          : "bg-white text-zinc-700 hover:text-zinc-900"
-                      }`}
-                    >
-                      <div>
-                        <p className="font-medium">{item.label}</p>
-                        {item.subLabel ? (
-                          <p
-                            className={`text-xs ${
-                              isActive ? "text-white/70" : "text-zinc-400"
-                            }`}
-                          >
-                            {item.subLabel}
-                          </p>
-                        ) : null}
-                      </div>
-                      {isActive ? (
-                        <span className="text-xs uppercase tracking-[0.3em] text-white/70">
-                          Selected
-                        </span>
-                      ) : null}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      </div>
-    </div>
+            </li>
+          );
+        })}
+      </ul>
+    </SheetDialog>
   );
 }
