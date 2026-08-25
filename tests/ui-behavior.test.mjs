@@ -38,6 +38,30 @@ test("dashboard period falls back to an available year and valid month", async (
   );
 });
 
+test("header totals identify outflow when spend exceeds income", async () => {
+  const totals = await import("../src/lib/header-totals.ts").catch(() => null);
+
+  assert.ok(totals, "expected header totals helper to exist");
+  assert.deepEqual(totals.getHeaderTotals(10_000, 2_000), {
+    spendCents: 10_000,
+    incomeCents: 2_000,
+    balanceLabel: "Outflow",
+    balanceCents: 8_000,
+  });
+});
+
+test("header totals identify surplus when income exceeds spend", async () => {
+  const totals = await import("../src/lib/header-totals.ts").catch(() => null);
+
+  assert.ok(totals, "expected header totals helper to exist");
+  assert.deepEqual(totals.getHeaderTotals(2_000, 10_000), {
+    spendCents: 2_000,
+    incomeCents: 10_000,
+    balanceLabel: "Surplus",
+    balanceCents: 8_000,
+  });
+});
+
 test("recurring impact copy stays concise and distinguishes automatic entries", async () => {
   const helpers = await import("../src/lib/ui-behavior.ts").catch(() => null);
 

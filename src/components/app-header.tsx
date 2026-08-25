@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo } from "react";
 
+import { getHeaderTotals } from "@/lib/header-totals";
 import { trpc } from "@/trpc/react";
 
 const navItems = [
@@ -50,38 +51,54 @@ export function AppHeader() {
   const incomeNet = incomeSummary.data
     ? incomeSummary.data.revenueCents - incomeSummary.data.costCents
     : undefined;
-  const effectiveNet =
-    spendNet === undefined || incomeNet === undefined
-      ? undefined
-      : spendNet - incomeNet;
   const formatter = new Intl.NumberFormat("ko-KR");
-  const totalSummary =
-    totalsLoading || totalsError || effectiveNet === undefined
+  const totals =
+    spendNet === undefined || incomeNet === undefined
       ? null
-      : effectiveNet >= 0
-        ? `Outflow ₩${formatter.format(effectiveNet)}`
-        : `Surplus ₩${formatter.format(Math.abs(effectiveNet))}`;
+      : getHeaderTotals(spendNet, incomeNet);
+  const metrics = totals
+    ? [
+        { label: "Spend", value: totals.spendCents },
+        { label: "Income", value: totals.incomeCents },
+        { label: totals.balanceLabel, value: totals.balanceCents },
+      ]
+    : [
+        { label: "Spend", value: null },
+        { label: "Income", value: null },
+        { label: "Outflow", value: null },
+      ];
 
   return (
     <header className="overflow-hidden rounded-2xl bg-ink px-4 pb-3 pt-4 text-white shadow-[0_18px_45px_rgba(24,33,28,0.2)] sm:px-5">
-      <div className="flex items-start justify-between gap-4 px-1">
-        <div className="min-w-0">
-          <p className="text-lg font-semibold tracking-[-0.025em]">
-            Money Log
+      <div className="flex items-baseline justify-between gap-4 px-1">
+        <p className="text-lg font-semibold tracking-[-0.025em]">Money Log</p>
+        <p className="financial-number text-sm text-white/65">{monthLabel}</p>
+      </div>
+
+      <div aria-live="polite" aria-busy={totalsLoading} className="mt-3">
+        {totalsError ? (
+          <p role="status" className="border-t border-white/10 pt-3 text-sm text-white/65">
+            Totals unavailable
           </p>
-          <p
-            className="financial-number mt-1 truncate text-sm text-white/70"
-            aria-live="polite"
-          >
-            {monthLabel} ·{" "}
-            {totalsLoading
-              ? "Totals —"
-              : totalsError
-                ? "Totals unavailable"
-                : totalSummary}
-          </p>
-        </div>
-        <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-income" aria-hidden="true" />
+        ) : (
+          <div className="grid grid-cols-3 divide-x divide-white/10 border-t border-white/10 pt-3">
+            {metrics.map((metric, index) => (
+              <div
+                key={metric.label}
+                className={`min-w-0 px-2 ${index === 0 ? "pl-0" : ""} ${index === 2 ? "pr-0" : ""}`}
+              >
+                <p className="text-[10px] font-medium uppercase tracking-[0.12em] text-white/55 sm:text-xs">
+                  {metric.label}
+                </p>
+                <p className="financial-number mt-0.5 whitespace-nowrap text-[clamp(0.7rem,3.2vw,0.875rem)] font-semibold text-white">
+                  {metric.value === null
+                    ? "₩—"
+                    : `₩${formatter.format(metric.value)}`}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <nav aria-label="Primary" className="mt-4 grid grid-cols-5 gap-1 rounded-xl bg-white/8 p-1">
